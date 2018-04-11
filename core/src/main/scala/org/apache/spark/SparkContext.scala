@@ -270,14 +270,14 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // Create the Spark execution environment (cache, map output tracker, etc)
 
   // This function allows components created by SparkEnv to be mocked in unit tests:
-  //定义创建SparkEnv的方法
+  // 定义创建SparkEnv的方法
   private[spark] def createSparkEnv(
       conf: SparkConf,
       isLocal: Boolean,
       listenerBus: LiveListenerBus): SparkEnv = {
     SparkEnv.createDriverEnv(conf, isLocal, listenerBus)
   }
-  //创建SparkEnv
+  // 创建SparkEnv
   private[spark] val env = createSparkEnv(conf, isLocal, listenerBus)
   SparkEnv.set(env)
 
@@ -304,10 +304,10 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
 
   // Initialize the Spark UI
-  //初始化spark ui
+  // 初始化spark ui
   private[spark] val ui: Option[SparkUI] =
-    if (conf.getBoolean("spark.ui.enabled", true)) {
-      //通过SparkUI的createLiveUI方法来创建
+  if (conf.getBoolean("spark.ui.enabled", true)) {
+    // 通过SparkUI的createLiveUI方法来创建
       Some(SparkUI.createLiveUI(this, conf, listenerBus, jobProgressListener,
         env.securityManager,appName))
     } else {
@@ -376,14 +376,14 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // 2）创建它底层基于的SparkDeploySchedulerBackend，
   // 3）调用TaskSchedulerImpl的initialize方法，根据调度器（两种）创建调度池
   private[spark] var (schedulerBackend, taskScheduler) =
-    SparkContext.createTaskScheduler(this, master)
-  //创建一个driver与executor的心跳检测的ActorSystem
+  SparkContext.createTaskScheduler(this, master)
+  // 创建一个driver与executor的心跳检测的ActorSystem
   private val heartbeatReceiver = env.actorSystem.actorOf(
     Props(new HeartbeatReceiver(taskScheduler)), "HeartbeatReceiver")
   @volatile private[spark] var dagScheduler: DAGScheduler = _
   try {
-    //（2）创建DAGScheduler ，以后用来把DAG切分成Stage
-    dagScheduler = new DAGScheduler(this)  //里面有一个任务调度器
+    // （2）创建DAGScheduler ，以后用来把DAG切分成Stage
+    dagScheduler = new DAGScheduler(this)  // 里面有一个任务调度器
   } catch {
     case e: Exception => {
       try {
@@ -396,7 +396,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
 
   // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
   // constructor
-  //启动TaskScheduler
+  // 启动TaskScheduler
   taskScheduler.start()
 
   val applicationId: String = taskScheduler.applicationId()
@@ -1478,13 +1478,13 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       throw new IllegalStateException("SparkContext has been shutdown")
     }
     val callSite = getCallSite
-    val cleanedFunc = clean(func)  //对函数进行校验，为了防止函数出现问题
+    val cleanedFunc = clean(func)  // 对函数进行校验，为了防止函数出现问题
     logInfo("Starting job: " + callSite.shortForm)
-    if (conf.getBoolean("spark.logLineage", false)) { //如果传入spark.logLineage参数为true，可以打印出RDD之间的血统关系
+    if (conf.getBoolean("spark.logLineage", false)) { // 如果传入spark.logLineage参数为true，可以打印出RDD之间的血统关系
       logInfo("RDD's recursive dependencies:\n" + rdd.toDebugString)
     }
-    //传说中的DAGScheduler出现了，用于将DAG切分Stage，然后再转换成TaskSet给TaskScheduler，再提交给Executor
-    //rdd是final rdd，
+    // 传说中的DAGScheduler出现了，用于将DAG切分Stage，然后再转换成TaskSet给TaskScheduler，再提交给Executor
+    // rdd是final rdd，
     dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, allowLocal,
       resultHandler, localProperties.get)
     progressBar.foreach(_.finishAll())
@@ -1497,14 +1497,14 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
    * than shipping it out to the cluster, for short actions like first().
    */
   def runJob[T, U: ClassTag](
-      rdd: RDD[T],   //final rdd
-      func: (TaskContext, Iterator[T]) => U,    //操作函数，可以自定义。这里是写入hdfs 的函数（writeToFile）
-      partitions: Seq[Int],  //每个分区
-      allowLocal: Boolean    //是否允许本地执行
-      ): Array[U] = { //返回结果
+                              rdd: RDD[T],   // final rdd
+                              func: (TaskContext, Iterator[T]) => U,    // 操作函数，可以自定义。这里是写入hdfs 的函数（writeToFile）
+                              partitions: Seq[Int],  // 每个分区
+                              allowLocal: Boolean    // 是否允许本地执行
+                            ): Array[U] = { // 返回结果
     val results = new Array[U](partitions.size)
     //TODO 调用重载的runJob方法
-    //      final rdd,操作函数,分区序列,   是否允许本地执行
+    // final rdd,操作函数,分区序列,   是否允许本地执行
     runJob[T, U](rdd, func, partitions, allowLocal, (index, res) => results(index) = res)
     results
   }
@@ -1525,7 +1525,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   /**
    * Run a job on all partitions in an RDD and return the results in an array.
    */
-  //将最后一个RDD和一个函数（将一个分区的数据写入到hdfs当中的函数）传入到该方法中
+  // 将最后一个RDD和一个函数（将一个分区的数据写入到hdfs当中的函数）传入到该方法中
   def runJob[T, U: ClassTag](rdd: RDD[T], func: (TaskContext, Iterator[T]) => U): Array[U] = {
     runJob(rdd, func, 0 until rdd.partitions.size, false)
   }
@@ -2110,7 +2110,8 @@ object SparkContext extends Logging {
    * Create a task scheduler based on a given master URL.
    * Return a 2-tuple of the scheduler backend and the task scheduler.
    */
-  //根据不同的master url（提交模式）来启动不同的TaskSchedulerImpl
+
+  // 根据不同的master url（提交模式）来启动不同的TaskSchedulerImpl
   private def createTaskScheduler(
       sc: SparkContext,
       master: String): (SchedulerBackend, TaskScheduler) = {
@@ -2131,7 +2132,7 @@ object SparkContext extends Logging {
     val MAX_LOCAL_TASK_FAILURES = 1
 
     master match {
-      case "local" =>  //本地提交模式
+      case "local" =>  // 本地提交模式
         val scheduler = new TaskSchedulerImpl(sc, MAX_LOCAL_TASK_FAILURES, isLocal = true)
         val backend = new LocalBackend(scheduler, 1)
         scheduler.initialize(backend)
@@ -2159,7 +2160,7 @@ object SparkContext extends Logging {
         scheduler.initialize(backend)
         (backend, scheduler)
 
-      //sparkUrl standalone的调度方式
+      // sparkUrl standalone的调度方式
       case SPARK_REGEX(sparkUrl) =>
         val scheduler = new TaskSchedulerImpl(sc)
         val masterUrls = sparkUrl.split(",").map("spark://" + _)
@@ -2180,10 +2181,10 @@ object SparkContext extends Logging {
         val localCluster = new LocalSparkCluster(
           numSlaves.toInt, coresPerSlave.toInt, memoryPerSlaveInt, sc.conf)
         val masterUrls = localCluster.start()
-        //传入masterUrl是为了以后driver能够与master进行通信。
-        //driver就是通过SparkDeploySchedulerBackend与master进行通信的
+        // 传入masterUrl是为了以后driver能够与master进行通信。
+        // driver就是通过SparkDeploySchedulerBackend与master进行通信的
         val backend = new SparkDeploySchedulerBackend(scheduler, sc, masterUrls)
-        //然后SparkDeploySchedulerBackend的引用用于scheduler的initialize初始化
+        // 然后SparkDeploySchedulerBackend的引用用于scheduler的initialize初始化
         scheduler.initialize(backend)
         backend.shutdownCallback = (backend: SparkDeploySchedulerBackend) => {
           localCluster.stop()
@@ -2251,11 +2252,11 @@ object SparkContext extends Logging {
         val scheduler = new TaskSchedulerImpl(sc)
         val coarseGrained = sc.conf.getBoolean("spark.mesos.coarse", false)
         val url = mesosUrl.stripPrefix("mesos://") // strip scheme from raw Mesos URLs
-        val backend = if (coarseGrained) {
-          new CoarseMesosSchedulerBackend(scheduler, sc, url)
-        } else {
-          new MesosSchedulerBackend(scheduler, sc, url)
-        }
+      val backend = if (coarseGrained) {
+        new CoarseMesosSchedulerBackend(scheduler, sc, url)
+      } else {
+        new MesosSchedulerBackend(scheduler, sc, url)
+      }
         scheduler.initialize(backend)
         (backend, scheduler)
 
