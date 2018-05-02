@@ -1503,7 +1503,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
                               allowLocal: Boolean    // 是否允许本地执行
                             ): Array[U] = { // 返回结果
     val results = new Array[U](partitions.size)
-    //TODO 调用重载的runJob方法
+    // TODO 调用重载的runJob方法
     // final rdd,操作函数,分区序列,   是否允许本地执行
     runJob[T, U](rdd, func, partitions, allowLocal, (index, res) => results(index) = res)
     results
