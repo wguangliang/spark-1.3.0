@@ -58,6 +58,7 @@ private[spark] class Pool(
     }
   }
 
+  // 直接将可调度对象TaskSetManager加入SchedulerQueue的尾端。
   override def addSchedulable(schedulable: Schedulable) {
     require(schedulable != null)
     schedulableQueue.add(schedulable)

@@ -130,22 +130,22 @@ private[spark] class TaskSchedulerImpl(
     this.backend = backend
     // temporarily set rootPool name to empty  //创建调度池
     rootPool = new Pool("", schedulingMode, 0, 0)
-    //生成两种调度器
+    // 生成两种调度器
     schedulableBuilder = {
       schedulingMode match {
-        case SchedulingMode.FIFO =>  //先进先出调度器
+        case SchedulingMode.FIFO =>  // 先进先出调度器
           new FIFOSchedulableBuilder(rootPool)
-        case SchedulingMode.FAIR =>  //公平调度器
+        case SchedulingMode.FAIR =>  // 公平调度器
           new FairSchedulableBuilder(rootPool, conf)
       }
     }
-    schedulableBuilder.buildPools()    //根据调度器创建调度池
+    schedulableBuilder.buildPools()    // 根据调度器创建调度池
   }
 
   def newTaskId(): Long = nextTaskId.getAndIncrement()
 
   override def start() {
-    backend.start()   //SparkDeploySchedulerBackend
+    backend.start()   // SparkDeploySchedulerBackend
 
     if (!isLocal && conf.getBoolean("spark.speculation", false)) {
       logInfo("Starting speculative execution thread")
@@ -160,15 +160,19 @@ private[spark] class TaskSchedulerImpl(
   override def postStartHook() {
     waitBackendReady()
   }
-  //TODO 该方法用于提交Tasks
+  // TODO 该方法用于提交Tasks
   override def submitTasks(taskSet: TaskSet) {
-    val tasks = taskSet.tasks  //task的集合
+    val tasks = taskSet.tasks  // task的集合
     logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
     this.synchronized {
+      // 创建TaskSetManager，并设置最大失败重试次数
       val manager = createTaskSetManager(taskSet, maxTaskFailures)
       activeTaskSets(taskSet.id) = manager
+      // 添加TaskManager到调度队列中，schedulableBuilder是应用程序级别的调度器，
+      // schedulableBuilder分为FIFOSchedulableBuilder、FairSchedulableBuilder
       schedulableBuilder.addTaskSetManager(manager, manager.taskSet.properties)
 
+      // 为慢任务启动备份任务
       if (!isLocal && !hasReceivedTask) {
         starvationTimer.scheduleAtFixedRate(new TimerTask() {
           override def run() {
@@ -184,8 +188,8 @@ private[spark] class TaskSchedulerImpl(
       }
       hasReceivedTask = true
     }
-    //SparkDeploySchedulerBackend类型的backend，其父类是CoarseGrainedSchedulerBackend
-    backend.reviveOffers() //该方法在其父类中
+    // SparkDeploySchedulerBackend类型的backend，其父类是CoarseGrainedSchedulerBackend
+    backend.reviveOffers() // 该方法在其父类中
   }
 
   // Label as private[scheduler] to allow tests to swap in different task set managers if necessary

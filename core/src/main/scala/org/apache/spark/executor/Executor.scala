@@ -49,7 +49,7 @@ private[spark] class Executor(
     isLocal: Boolean = false)
   extends Logging
 {
-  //在CoarseGrainedExecutorBackend端new Executor出来，会执行Executor主构造器
+  // 在CoarseGrainedExecutorBackend端new Executor出来，会执行Executor主构造器
   logInfo(s"Starting executor ID $executorId on host $executorHostname")
 
   // Application dependencies (added through SparkContext) that we've fetched so far on this node.
@@ -116,20 +116,20 @@ private[spark] class Executor(
 
   // Maintains the list of running tasks.
   private val runningTasks = new ConcurrentHashMap[Long, TaskRunner]
-  //Executor向driver发送心跳报活：创建一个线程来向driver发送心跳
+  // Executor向driver发送心跳报活：创建一个线程来向driver发送心跳
   startDriverHeartbeater()
-  //使用线程池执行任务
+  // 使用线程池执行任务
   def launchTask(
       context: ExecutorBackend,
       taskId: Long,
       attemptNumber: Int,
       taskName: String,
       serializedTask: ByteBuffer) {
-    //将Task信息封装成TaskRunner
+    // 将Task信息封装成TaskRunner
     val tr = new TaskRunner(context, taskId = taskId, attemptNumber = attemptNumber, taskName,
       serializedTask)
-    runningTasks.put(taskId, tr) //将该TaskRunning放入runningTasks:ConcurrentMap中
-    //使用刚才创建的线程池执行TaskRunner，会调用TaskRunner的run方法。下面看TaskRunner的run方法
+    runningTasks.put(taskId, tr) // 将该TaskRunning放入runningTasks:ConcurrentMap中
+    // 使用刚才创建的线程池执行TaskRunner，会调用TaskRunner的run方法。下面看TaskRunner的run方法
     threadPool.execute(tr)
   }
 
@@ -172,12 +172,12 @@ private[spark] class Executor(
         task.kill(interruptThread)
       }
     }
-    //当threadPool.execute(tr)时，会调用TaskRunner的方法
-    //执行Task真正的业务逻辑
+    // 当threadPool.execute(tr)时，会调用TaskRunner的方法
+    // 执行Task真正的业务逻辑
     override def run() {
       val deserializeStartTime = System.currentTimeMillis()
       Thread.currentThread.setContextClassLoader(replClassLoader)
-      //拿到一个序列化器
+      // 拿到一个序列化器
       val ser = env.closureSerializer.newInstance()
       logInfo(s"Running $taskName (TID $taskId)")
       execBackend.statusUpdate(taskId, TaskState.RUNNING, EMPTY_BYTE_BUFFER)
@@ -187,7 +187,7 @@ private[spark] class Executor(
       try {
         val (taskFiles, taskJars, taskBytes) = Task.deserializeWithDependencies(serializedTask)
         updateDependencies(taskFiles, taskJars)
-        //反序列化task，得到最原始的task
+        // 反序列化task，得到最原始的task
         task = ser.deserialize[Task[Any]](taskBytes, Thread.currentThread.getContextClassLoader)
 
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
@@ -206,8 +206,8 @@ private[spark] class Executor(
 
         // Run the actual task and measure its runtime.
         taskStart = System.currentTimeMillis()
-        //TODO 调用task的run方法
-        //task主要分为两种 ShuffleMapTask和ResultTask
+        // TODO 调用task的run方法
+        // task主要分为两种 ShuffleMapTask和ResultTask
         val value = task.run(taskAttemptId = taskId, attemptNumber = attemptNumber)
         val taskFinish = System.currentTimeMillis()
 
@@ -402,7 +402,7 @@ private[spark] class Executor(
     val retryAttempts = AkkaUtils.numRetries(conf)
     val retryIntervalMs = AkkaUtils.retryWaitMs(conf)
     val heartbeatReceiverRef = AkkaUtils.makeDriverRef("HeartbeatReceiver", conf, env.actorSystem)
-    //创建线程
+    // 创建线程
     val t = new Thread() {
       override def run() {
         // Sleep a random interval so the heartbeats don't end up in sync
@@ -432,7 +432,7 @@ private[spark] class Executor(
               }
             }
           }
-          //Executor发送给driver actor的心跳信息
+          // Executor发送给driver actor的心跳信息
           val message = Heartbeat(executorId, tasksMetrics.toArray, env.blockManager.blockManagerId)
           try {
             val response = AkkaUtils.askWithReply[HeartbeatResponse](message, heartbeatReceiverRef,
