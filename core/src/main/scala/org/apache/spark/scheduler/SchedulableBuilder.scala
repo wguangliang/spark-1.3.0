@@ -134,20 +134,25 @@ private[spark] class FairSchedulableBuilder(val rootPool: Pool, conf: SparkConf)
 
   override def addTaskSetManager(manager: Schedulable, properties: Properties) {
     var poolName = DEFAULT_POOL_NAME
+    // 获得根节点的默认调度池的引用
     var parentPool = rootPool.getSchedulableByName(poolName)
     if (properties != null) {
+      // 根据优先级获得父可调度对象pool的引用
       poolName = properties.getProperty(FAIR_SCHEDULER_PROPERTIES, DEFAULT_POOL_NAME)
       parentPool = rootPool.getSchedulableByName(poolName)
       if (parentPool == null) {
+        // 如果父可调度对象不存在，则根据应用程序配置信息创建之
         // we will create a new pool that user has configured in app
         // instead of being defined in xml file
         parentPool = new Pool(poolName, DEFAULT_SCHEDULING_MODE,
           DEFAULT_MINIMUM_SHARE, DEFAULT_WEIGHT)
+        // 作为根据点default pool的孩子加入default pool中
         rootPool.addSchedulable(parentPool)
         logInfo("Created pool %s, schedulingMode: %s, minShare: %d, weight: %d".format(
           poolName, DEFAULT_SCHEDULING_MODE, DEFAULT_MINIMUM_SHARE, DEFAULT_WEIGHT))
       }
     }
+    // 与FIFO类似，在每个父pool中采用队列形式，将TaskSetManager加入队尾。
     parentPool.addSchedulable(manager)
     logInfo("Added task set " + manager.name + " tasks to pool " + poolName)
   }
