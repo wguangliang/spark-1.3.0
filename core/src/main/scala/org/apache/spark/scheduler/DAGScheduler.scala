@@ -94,7 +94,7 @@ class DAGScheduler(
       sc.env)
   }
 
-  def this(sc: SparkContext) = this(sc, sc.taskScheduler)
+  def this(sc: SparkContext) = this(sc, sc.taskScheduler)  // 会把taskScheduler传给dagScheduler
 
   private[scheduler] val nextJobId = new AtomicInteger(0)
   private[scheduler] def numTotalJobs: Int = nextJobId.get()
@@ -147,8 +147,8 @@ class DAGScheduler(
   private val messageScheduler =
     Executors.newScheduledThreadPool(1, Utils.namedThreadFactory("dag-scheduler-message"))
   //
-  private[scheduler] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this) //构造一个DAGSchedulerEventProcessLoop
-  taskScheduler.setDAGScheduler(this)
+  private[scheduler] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this) // 构造一个DAGSchedulerEventProcessLoop
+  taskScheduler.setDAGScheduler(this)  // 将这个DAGScheduler赋值给TaskScheduler
 
   private val outputCommitCoordinator = env.outputCommitCoordinator
 
