@@ -216,7 +216,7 @@ abstract class RDD[T: ClassTag](
   final def partitions: Array[Partition] = {
     checkpointRDD.map(_.partitions).getOrElse {
       if (partitions_ == null) {
-        partitions_ = getPartitions
+        partitions_ = getPartitions  // getPartitions可以找到具体的RDD例如HadoopRDD找对应的方法
       }
       partitions_
     }
@@ -225,6 +225,7 @@ abstract class RDD[T: ClassTag](
   /**
    * Get the preferred locations of a partition, taking into account whether the
    * RDD is checkpointed.
+   * 这里为RDD的方法
    */
   final def preferredLocations(split: Partition): Seq[String] = {
     checkpointRDD.map(_.getPreferredLocations(split)).getOrElse {
