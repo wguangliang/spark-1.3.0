@@ -29,6 +29,7 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
   private val startTime: Option[Long] = parent.sc.map(_.startTime)
   private val listener = parent.listener
 
+  // 该方法用于生成表格数据
   private def jobsTable(jobs: Seq[JobUIData]): Seq[Node] = {
     val someJobHasJobGroup = jobs.exists(_.jobGroup.isDefined)
 
@@ -40,7 +41,7 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
       <th class="sorttable_nosort">Stages: Succeeded/Total</th>
       <th class="sorttable_nosort">Tasks (for all stages): Succeeded/Total</th>
     }
-
+    // 每行数据通过makeRow方法渲染
     def makeRow(job: JobUIData): Seq[Node] = {
       val lastStageInfo = Option(job.stageIds)
         .filter(_.nonEmpty)
@@ -94,6 +95,13 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
     </table>
   }
 
+  /**
+    * render方法用于渲染
+    *  利用jobProgressListener中的统计监控数据生成激活、完成、失败等状态的Job摘要信息，并调用jobsTable方法生成表格等html元素
+    *    最终使用UIUtils的headerSparkPage封装好css、js、header及页面布局等
+    * @param request
+    * @return
+    */
   def render(request: HttpServletRequest): Seq[Node] = {
     listener.synchronized {
       val activeJobs = listener.activeJobs.values.toSeq
@@ -169,7 +177,7 @@ private[ui] class AllJobsPage(parent: JobsTab) extends WebUIPage("") {
       val helpText = """A job is triggered by an action, like "count()" or "saveAsTextFile()".""" +
         " Click on a job's title to see information about the stages of tasks associated with" +
         " the job."
-
+      // 最终封装
       UIUtils.headerSparkPage("Spark Jobs", content, parent, helpText = Some(helpText))
     }
   }

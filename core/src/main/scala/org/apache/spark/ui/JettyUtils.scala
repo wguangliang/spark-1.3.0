@@ -84,6 +84,7 @@ private[spark] object JettyUtils extends Logging {
   }
 
   /** Create a context handler that responds to a request with the given path prefix */
+  // 该方法实际上创建了javax.servlet.http.HttpServlet的匿名内部类实例
   def createServletHandler[T <% AnyRef](
       path: String,
       servletParams: ServletParams[T],
@@ -95,7 +96,7 @@ private[spark] object JettyUtils extends Logging {
   /** Create a context handler that responds to a request with the given path prefix */
   def createServletHandler(
       path: String,
-      servlet: HttpServlet,
+      servlet: HttpServlet,  // javax.servlet.http.HttpServlet
       basePath: String): ServletContextHandler = {
     val prefixedPath = attachPrefix(basePath, path)
     val contextHandler = new ServletContextHandler

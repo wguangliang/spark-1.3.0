@@ -71,8 +71,8 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
   // Total of completed and failed stages that have ever been run.  These may be greater than
   // `completedStages.size` and `failedStages.size` if we have run more stages or jobs than
   // JobProgressListener's retention limits.
-  var numCompletedStages = 0
-  var numFailedStages = 0
+  var numCompletedStages = 0  // 总共完成的Stage数量
+  var numFailedStages = 0     // 总共失败的Stage数量
 
   // Misc:
   val executorIdToBlockManagerId = HashMap[ExecutorId, BlockManagerId]()

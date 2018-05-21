@@ -339,6 +339,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
 
   // Bind the UI before starting the task scheduler to communicate
   // the bound port to the cluster manager properly
+  // SparkUI创建完成后，需要调用父类的bind方法，绑定服务和端口
   ui.foreach(_.bind())
 
   /**
@@ -346,6 +347,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
    *
    * '''Note:''' As it will be reused in all Hadoop RDDs, it's better not to modify it unless you
    * plan to set some global configurations for all Hadoop RDDs.
+   *  默认情况下，Spark使用HDFS作为分布式文件系统，所以需要Hadoop相关配置信息
    */
   val hadoopConfiguration = SparkHadoopUtil.get.newConfiguration(conf)
 

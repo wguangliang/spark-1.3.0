@@ -46,7 +46,12 @@ private[spark] class SparkUI private (
   val killEnabled = sc.map(_.conf.getBoolean("spark.ui.killEnabled", true)).getOrElse(false)
 
   /** Initialize all components of the server. */
-  // 服务器是初始化
+  // 服务器初始化
+  //    JobsTabl创建之后，将被attachTab方法加入SpariUI的ArrayBuffer[WebUITab]中，
+  //    并且通过attachPage方法，给每一个page生成org.eclipse.jetty.servlet.ServletContextHandler,
+  //    最后调用attachHandler方法将ServletContextHandler绑定到SparkUI，
+  //    即加入到handlers:ArrayBuffer[ServletContextHandler]和样例类ServerInfo的rootHandler（ContextHandlerCollection）中。
+  //   SparkUI继承自WebUI
   def initialize() {
     attachTab(new JobsTab(this))
     val stagesTab = new StagesTab(this)

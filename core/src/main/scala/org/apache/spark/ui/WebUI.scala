@@ -57,13 +57,14 @@ private[spark] abstract class WebUI(
 
   /** Attach a tab to this UI, along with all of its attached pages. */
   def attachTab(tab: WebUITab) {
-    tab.pages.foreach(attachPage)
+    tab.pages.foreach(attachPage) // attachPage
     tabs += tab
   }
 
   /** Attach a page to this UI. */
   def attachPage(page: WebUIPage) {
     val pagePath = "/" + page.prefix
+    // 调用JettyUtils.createServletHandler
     attachHandler(createServletHandler(pagePath,
       (request: HttpServletRequest) => page.render(request), securityManager, basePath))
     attachHandler(createServletHandler(pagePath.stripSuffix("/") + "/json",
@@ -99,6 +100,7 @@ private[spark] abstract class WebUI(
   def bind() {
     assert(!serverInfo.isDefined, "Attempted to bind %s more than once!".format(className))
     try {
+      // JettyUtils的静态方法startJettyServer
       serverInfo = Some(startJettyServer("0.0.0.0", port, handlers, conf, name))
       logInfo("Started %s at http://%s:%d".format(className, publicHostName, boundPort))
     } catch {
@@ -125,6 +127,7 @@ private[spark] abstract class WebUI(
  * The prefix is appended to the parent address to form a full path, and must not contain slashes.
  */
 private[spark] abstract class WebUITab(parent: WebUI, val prefix: String) {
+  // 维护pages：ArrayBuffer[WebUIPage]
   val pages = ArrayBuffer[WebUIPage]()
   val name = prefix.capitalize
 
