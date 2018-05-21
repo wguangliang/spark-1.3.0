@@ -33,19 +33,19 @@ import org.apache.spark.Logging
  */
 private[spark] abstract class EventLoop[E](name: String) extends Logging {
 
-  private val eventQueue: BlockingQueue[E] = new LinkedBlockingDeque[E]()    //定义了一个存放事件的阻塞队列
+  private val eventQueue: BlockingQueue[E] = new LinkedBlockingDeque[E]()    // 定义了一个存放事件的阻塞队列
 
   private val stopped = new AtomicBoolean(false)
 
-  private val eventThread = new Thread(name) { //定义了一个线程，只要这个run方法启动，这个线程就不停的调用onReceive方法
+  private val eventThread = new Thread(name) { // 定义了一个线程，只要这个run方法启动，这个线程就不停的调用onReceive方法
     setDaemon(true)
 
     override def run(): Unit = {
       try {
-        while (!stopped.get) {  //启动一个线程，如果没有stopped.get!=true，一直执行
-          val event = eventQueue.take() //从阻塞队列中拿出一个事件
+        while (!stopped.get) {  // 启动一个线程，如果没有stopped.get!=true，一直执行
+          val event = eventQueue.take() // 从阻塞队列中拿出一个事件
           try {
-            onReceive(event) //事件传递给onReceive方法
+            onReceive(event) // 事件传递给onReceive方法
           } catch {
             case NonFatal(e) => {
               try {
@@ -99,7 +99,7 @@ private[spark] abstract class EventLoop[E](name: String) extends Logging {
   /**
    * Invoked when `start()` is called but before the event thread starts.
    */
-  protected def onStart(): Unit = {}  //Ctrl+T查看子类实现
+  protected def onStart(): Unit = {}  // Ctrl+T查看子类实现
 
   /**
    * Invoked when `stop()` is called and the event thread exits.
@@ -113,7 +113,7 @@ private[spark] abstract class EventLoop[E](name: String) extends Logging {
    * and cannot process events in time. If you want to call some blocking actions, run them in
    * another thread.
    */
-  protected def onReceive(event: E): Unit   //Ctrl+T查看他的子类，在子类中实现了onReceive方法
+  protected def onReceive(event: E): Unit   // Ctrl+T查看他的子类，在子类中实现了onReceive方法
 
   /**
    * Invoked if `onReceive` throws any non fatal error. Any non fatal error thrown from `onError`

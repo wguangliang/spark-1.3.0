@@ -342,11 +342,12 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     value
   }
 
-  private[spark] val executorMemory = conf.getOption("spark.executor.memory")
-    .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))
-    .orElse(Option(System.getenv("SPARK_MEM")).map(warnSparkMem))
+  // spark.executor.memory
+  private[spark] val executorMemory = conf.getOption("spark.executor.memory")  // spark程序或者参数中有没有这个参数
+    .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))  // 查看spark系统配置中有没有这个参数
+    .orElse(Option(System.getenv("SPARK_MEM")).map(warnSparkMem)) // 查看spark系统配置中有没有这个参数
     .map(Utils.memoryStringToMb)
-    .getOrElse(512)
+    .getOrElse(512)  // 否则设置512MB。1.6改为了1024MB
 
   // Environment variables to pass to our executors.
   private[spark] val executorEnvs = HashMap[String, String]()
@@ -370,19 +371,19 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   executorEnvs("SPARK_USER") = sparkUser
 
   // Create and start the scheduler
-  //（1）创建TaskScheduler
-  //createTaskScheduler方法总共做了三件事：
+  // （1）创建TaskScheduler 根据不同的masterUrl，生成不同的schedulerBackend和taskScheduler
+  // createTaskScheduler方法总共做了三件事：
   // 1）创建TaskSchedulerImpl,
   // 2）创建它底层基于的SparkDeploySchedulerBackend，
   // 3）调用TaskSchedulerImpl的initialize方法，根据调度器（两种）创建调度池
   private[spark] var (schedulerBackend, taskScheduler) =
-  SparkContext.createTaskScheduler(this, master)
+  SparkContext.createTaskScheduler(this, master)  // this传递的是SparkContext； master为程序中的master：local或者yarn 等等
   // 创建一个driver与executor的心跳检测的ActorSystem
   private val heartbeatReceiver = env.actorSystem.actorOf(
     Props(new HeartbeatReceiver(taskScheduler)), "HeartbeatReceiver")
   @volatile private[spark] var dagScheduler: DAGScheduler = _
   try {
-    // （2）创建DAGScheduler ，以后用来把DAG切分成Stage
+    // （2）创建DAGScheduler ，以后用来把DAG切分成Stage 。 不同的masterUrl生成不同的schedulerBackend和taskScheduler，但是DAGScheduler是一样的
     dagScheduler = new DAGScheduler(this)  // 里面有一个任务调度器
   } catch {
     case e: Exception => {
@@ -2107,6 +2108,69 @@ object SparkContext extends Logging {
   }
 
   /**
+    * 根据master的url创建task scheduler，返回二元组(SchedulerBackend, TaskScheduler)
+    * local =>
+    *   val scheduler = new TaskSchedulerImpl(sc, MAX_LOCAL_TASK_FAILURES, isLocal = true)
+        val backend = new LocalBackend(scheduler, 1)
+    *
+    * local[n] =>
+    *   val scheduler = new TaskSchedulerImpl(sc, MAX_LOCAL_TASK_FAILURES, isLocal = true)
+        val backend = new LocalBackend(scheduler, threadCount)
+    *
+    * spark://(.*) =>  standalone的调度方式
+    *   val scheduler = new TaskSchedulerImpl(sc)
+        val backend = new SparkDeploySchedulerBackend(scheduler, sc, masterUrls)
+    *
+    * yarn-standalone" | "yarn-cluster =>
+    *   val scheduler = try {
+          val clazz = Class.forName("org.apache.spark.scheduler.cluster.YarnClusterScheduler")
+          val cons = clazz.getConstructor(classOf[SparkContext])
+          cons.newInstance(sc).asInstanceOf[TaskSchedulerImpl]
+        } catch {
+          // TODO: Enumerate the exact reasons why it can fail
+          // But irrespective of it, it means we cannot proceed !
+          case e: Exception => {
+            throw new SparkException("YARN mode not available ?", e)
+          }
+        }
+        val backend = try {
+          val clazz =
+            Class.forName("org.apache.spark.scheduler.cluster.YarnClusterSchedulerBackend")
+          val cons = clazz.getConstructor(classOf[TaskSchedulerImpl], classOf[SparkContext])
+          cons.newInstance(scheduler, sc).asInstanceOf[CoarseGrainedSchedulerBackend]
+        } catch {
+          case e: Exception => {
+            throw new SparkException("YARN mode not available ?", e)
+          }
+        }
+
+    * yarn-client =>
+    *   val scheduler = try {
+          val clazz =
+            Class.forName("org.apache.spark.scheduler.cluster.YarnScheduler")
+          val cons = clazz.getConstructor(classOf[SparkContext])
+          cons.newInstance(sc).asInstanceOf[TaskSchedulerImpl]
+
+        } catch {
+          case e: Exception => {
+            throw new SparkException("YARN mode not available ?", e)
+          }
+        }
+
+        val backend = try {
+          val clazz =
+            Class.forName("org.apache.spark.scheduler.cluster.YarnClientSchedulerBackend")
+          val cons = clazz.getConstructor(classOf[TaskSchedulerImpl], classOf[SparkContext])
+          cons.newInstance(scheduler, sc).asInstanceOf[CoarseGrainedSchedulerBackend]
+        } catch {
+          case e: Exception => {
+            throw new SparkException("YARN mode not available ?", e)
+          }
+        }
+   *
+   * 其他
+   *
+   *
    * Create a task scheduler based on a given master URL.
    * Return a 2-tuple of the scheduler backend and the task scheduler.
    */
@@ -2139,6 +2203,7 @@ object SparkContext extends Logging {
         (backend, scheduler)
 
       case LOCAL_N_REGEX(threads) =>
+        // 当前可利用的进程数
         def localCpuCount = Runtime.getRuntime.availableProcessors()
         // local[*] estimates the number of cores on the machine; local[N] uses exactly N threads.
         val threadCount = if (threads == "*") localCpuCount else threads.toInt
@@ -2153,7 +2218,7 @@ object SparkContext extends Logging {
       case LOCAL_N_FAILURES_REGEX(threads, maxFailures) =>
         def localCpuCount = Runtime.getRuntime.availableProcessors()
         // local[*, M] means the number of cores on the computer with M failures
-        // local[N, M] means exactly N threads with M failures
+        // local[N, M] means exactly N threads with M failures  N个core，允许M次失败
         val threadCount = if (threads == "*") localCpuCount else threads.toInt
         val scheduler = new TaskSchedulerImpl(sc, maxFailures.toInt, isLocal = true)
         val backend = new LocalBackend(scheduler, threadCount)

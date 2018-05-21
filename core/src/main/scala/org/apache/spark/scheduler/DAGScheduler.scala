@@ -147,7 +147,7 @@ class DAGScheduler(
   private val messageScheduler =
     Executors.newScheduledThreadPool(1, Utils.namedThreadFactory("dag-scheduler-message"))
   //
-  private[scheduler] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this) // 构造一个DAGSchedulerEventProcessLoop
+  private[scheduler] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this) //构造一个DAGSchedulerEventProcessLoop
   taskScheduler.setDAGScheduler(this)
 
   private val outputCommitCoordinator = env.outputCommitCoordinator
@@ -228,20 +228,20 @@ class DAGScheduler(
    * The jobId value passed in will be used if the stage doesn't already exist with
    * a lower jobId (jobId always increases across jobs.)
    */
-  // 6处被调用
+  //6处被调用
   private def getShuffleMapStage(shuffleDep: ShuffleDependency[_, _, _], jobId: Int): Stage = {
-    // 根据shuffeId查找stage是否存在
+    //根据shuffeId查找stage是否存在
     shuffleToMapStage.get(shuffleDep.shuffleId) match {
-      case Some(stage) => stage // 如果已经存在，则直接返回
-      case None => // 如果不存在
-        // 如果有stage则直接使用，否则根据stage创建新的parent stage
+      case Some(stage) => stage //如果已经存在，则直接返回
+      case None => //如果不存在
+        //如果有stage则直接使用，否则根据stage创建新的parent stage
         // We are going to register ancestor shuffle dependencies
-        // 注册以前的shuffle dependency，并将shuffle dependency转换为新的stage或已经存在的stage
+        //注册以前的shuffle dependency，并将shuffle dependency转换为新的stage或已经存在的stage
         registerShuffleDependencies(shuffleDep, jobId)
         // Then register current shuffleDep
-        // 注册当前的shuffleDep
+        //注册当前的shuffleDep
         val stage =
-          newOrUsedStage( // 也是生成stage的，不过如果stage已经存在，则直接使用
+          newOrUsedStage( //也是生成stage的，不过如果stage已经存在，则直接使用
             shuffleDep.rdd, shuffleDep.rdd.partitions.size, shuffleDep, jobId,
             shuffleDep.rdd.creationSite)
         shuffleToMapStage(shuffleDep.shuffleId) = stage
@@ -260,12 +260,12 @@ class DAGScheduler(
   private def newStage(
       rdd: RDD[_], // 最后一个rdd
       numTasks: Int, // 创建newStage方法的这个参数传入的是partitions.size.所以一个分区对应一个task！
-      shuffleDep: Option[ShuffleDependency[_, _, _]], // 是否是一个ShuffleDependence，用于划分Stage的标记
+      shuffleDep: Option[ShuffleDependency[_, _, _]], //是否是一个ShuffleDependence，用于划分Stage的标记
       jobId: Int,
       callSite: CallSite)
     : Stage =
   {
-    val parentStages = getParentStages(rdd, jobId)  // 获取他的父stage
+    val parentStages = getParentStages(rdd, jobId)  //获取他的父stage
     // 获得stage的id
     val id = nextStageId.getAndIncrement()
     // 创建新的stage，会传入父stage，形成依赖关系，组成DAG图
@@ -291,7 +291,7 @@ class DAGScheduler(
   {
     val stage = newStage(rdd, numTasks, Some(shuffleDep), jobId, callSite)
     if (mapOutputTracker.containsShuffle(shuffleDep.shuffleId)) {
-      // Stage已经被计算过，从MapOutputTracker中获取计算结果
+      //Stage已经被计算过，从MapOutputTracker中获取计算结果
       val serLocs = mapOutputTracker.getSerializedMapOutputStatuses(shuffleDep.shuffleId)
       val locs = MapOutputTracker.deserializeMapStatuses(serLocs)
       for (i <- 0 until locs.size) {
@@ -311,35 +311,35 @@ class DAGScheduler(
    * Get or create the list of parent stages for a given RDD. The stages will be assigned the
    * provided jobId if they haven't already been created with a lower jobId.
    */
-  // 用于获取给定rdd的一系列父stage，每个stage分配一个jobid
+  //用于获取给定rdd的一系列父stage，每个stage分配一个jobid
   private def getParentStages(rdd: RDD[_], jobId: Int): List[Stage] = {
     val parents = new HashSet[Stage]  // parents RDD; HashSet为了防止里面元素重复
-    val visited = new HashSet[RDD[_]]  // 存储已经被访问的RDD，构建的时候是从后往前回溯的一个过程，回溯过之后就会被保存起来。
+    val visited = new HashSet[RDD[_]]  //存储已经被访问的RDD，构建的时候是从后往前回溯的一个过程，回溯过之后就会被保存起来。
     // We are manually maintaining a stack here to prevent StackOverflowError
     // caused by recursively visiting
-    val waitingForVisit = new Stack[RDD[_]]   // 栈
+    val waitingForVisit = new Stack[RDD[_]]   //栈
     def visit(r: RDD[_]) {
-      if (!visited(r)) { // 如果还未访问过该rdd
-        visited += r // 访问过该rdd
+      if (!visited(r)) { //如果还未访问过该rdd
+        visited += r //访问过该rdd
         // Kind of ugly: need to register RDDs with the cache here since
         // we can't do it in its constructor because # of partitions is unknown
-        // 这里会一直向上查找，直到看到Shuffle依赖。如果没有，那么这个作业就是一个stage
-        for (dep <- r.dependencies) {// 找到该rdd的依赖。宽依赖是多个，窄依赖是一个。所以这里是复数
+        //这里会一直向上查找，直到看到Shuffle依赖。如果没有，那么这个作业就是一个stage
+        for (dep <- r.dependencies) {//找到该rdd的依赖。宽依赖是多个，窄依赖是一个。所以这里是复数
           dep match {
-            case shufDep: ShuffleDependency[_, _, _] => // 如果依赖关系是shufDep
-              // 这是真正创建stage的方法
-              parents += getShuffleMapStage(shufDep, jobId) // 如果碰到关系是宽依赖，则使用该方法计算他的stage
-            case _ =>    // 是窄依赖的话
-              waitingForVisit.push(dep.rdd) // 压栈，认为父rdd与该rdd是一个stage
+            case shufDep: ShuffleDependency[_, _, _] => //如果依赖关系是shufDep
+              //这是真正创建stage的方法
+              parents += getShuffleMapStage(shufDep, jobId) //如果碰到关系是宽依赖，则使用该方法计算他的stage
+            case _ =>    //是窄依赖的话
+              waitingForVisit.push(dep.rdd) //压栈，认为父rdd与该rdd是一个stage
           }
         }
       }
     }
-    // 把最后一个rdd压栈
+    //把最后一个rdd压栈
     waitingForVisit.push(rdd)
-    // 不停向上遍历
-    while (!waitingForVisit.isEmpty) { // 如果不为空，则进入循环
-      visit(waitingForVisit.pop()) // 弹栈
+    //不停向上遍历
+    while (!waitingForVisit.isEmpty) { //如果不为空，则进入循环
+      visit(waitingForVisit.pop()) //弹栈
     }
     parents.toList
   }
@@ -499,7 +499,7 @@ class DAGScheduler(
    * Submit a job to the job scheduler and get a JobWaiter object back. The JobWaiter object
    * can be used to block until the the job finishes executing or can be used to cancel the job.
    */
-  // 提交一个job到job调度器，返回一个JobWaiter
+  //提交一个job到job调度器，返回一个JobWaiter
   def submitJob[T, U](
       rdd: RDD[T],
       func: (TaskContext, Iterator[T]) => U,
@@ -552,7 +552,7 @@ class DAGScheduler(
         logInfo("Job %d finished: %s, took %f s".format
           (waiter.jobId, callSite.shortForm, (System.nanoTime - start) / 1e9))
       }
-      // 如果job失败了
+      //如果job失败了
       case JobFailed(exception: Exception) =>
         logInfo("Job %d failed: %s, took %f s".format
           (waiter.jobId, callSite.shortForm, (System.nanoTime - start) / 1e9))
