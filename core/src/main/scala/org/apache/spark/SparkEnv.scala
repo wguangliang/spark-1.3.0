@@ -50,6 +50,25 @@ import org.apache.spark.util.{AkkaUtils, Utils}
  *
  * NOTE: This is not intended for external use. This is exposed for Shark and may be made private
  *       in a future release.
+ *
+ *    SparkEnv的构造步骤如下：
+  *    1）创建安全管理器SecurityManager
+  *    2）创建基于Akka的分布式消息系统ActorSystem
+  *    3）创建Map任务输出跟踪器mapOutputTracker
+  *    4）实例化ShuffleManager
+  *    5）创建ShuffleMemoryManager
+  *    6）创建块传输服务BlockTransferService
+  *    7）创建BlockManagerMaster
+  *    8）创建块管理器 BlockManager
+  *    9）创建广播管理器 CacheManger
+  *    10）创建缓存管理器 CacheManager
+  *    11）创建HTTP文件服务器HttpFileServer
+  *    12）创建测量系统MetricsSystem
+  *    13）创建SparkEnv
+  *
+  *
+  *
+  *
  */
 @DeveloperApi
 class SparkEnv (
@@ -215,7 +234,9 @@ object SparkEnv extends Logging {
       assert(listenerBus != null, "Attempted to create driver SparkEnv with null listener bus!")
     }
 
-    // 创建安全管理器
+
+    // 安全管理器SecurityManager
+
     val securityManager = new SecurityManager(conf)
 
     // Create the ActorSystem for Akka and get the port it binds to.

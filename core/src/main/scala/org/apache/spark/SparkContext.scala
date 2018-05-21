@@ -72,6 +72,22 @@ import org.apache.spark.util._
  * 它负责处理一些通用的逻辑，比如说决定多个job的调度顺序
  * 客户端首先应调用它的initialize()方法和start()方法，然后通过runTasks()方法提交task sets
  *
+ * SparkContext的初始化步骤如下：
+ * 1）创建Spark执行环境SparkEnv
+ * 2）创建RDD清理器metadataCleaner
+ * 3）创建并初始化SparkUI
+ * 4）Hadoop相关配置及Executor环境变量的设置
+ * 5）创建任务调度TaskScheduler
+ * 6）创建和启动DAGScheduler
+ * 7）TaskScheduler的启动
+ * 8）初始化块管理器BlockManager（BlockManager是存储体系的主要组件之一）
+ * 9）启动测量系统MetricsSystem
+ * 10）创建和启动Executor分配管理器ExecutorAllocationManager
+ * 11）ContextCleaner的创建和启动
+ * 12）spark环境更新
+ * 13）创建DAGSchedulerSource和BlockManagerSource
+ * 14）将SparkContext标记为激活
+ *
  *
  */
 /**
@@ -1784,7 +1800,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
  * The SparkContext object contains a number of implicit conversions and parameters for use with
  * various Spark features.
  */
-object SparkContext extends Logging {
+object
+SparkContext extends Logging {
 
   /**
    * Lock that guards access to global variables that track SparkContext construction.

@@ -179,6 +179,9 @@ import org.apache.spark.util.Utils
  *  options for master and workers. In this mode, the user may allow the executors to use the SSL
  *  settings inherited from the worker which spawned that executor. It can be accomplished by
  *  setting `spark.ssl.useNodeLocalConf` to `true`.
+  *
+  *
+  *  SecurityManager主要对权限、账号进行设置，如果使用hadoop yarn作为集群管理器，则需要使用证书生成secret key登录
  */
 
 private[spark] class SecurityManager(sparkConf: SparkConf)
@@ -187,6 +190,7 @@ private[spark] class SecurityManager(sparkConf: SparkConf)
   // key used to store the spark secret in the Hadoop UGI
   private val sparkSecretLookupKey = "sparkCookie"
 
+  // 是否需要HTTP连接设置口令认证
   private val authOn = sparkConf.getBoolean("spark.authenticate", false)
   // keep spark.ui.acls.enable for backwards compatibility with 1.0
   private var aclsOn =
@@ -218,6 +222,7 @@ private[spark] class SecurityManager(sparkConf: SparkConf)
   // Set our own authenticator to properly negotiate user/password for HTTP connections.
   // This is needed by the HTTP client fetching from the HttpServer. Put here so its
   // only set once.
+  // 使用HTTP连接设置 口令认证。 设置当前系统默认的口令认证
   if (authOn) {
     Authenticator.setDefault(
       new Authenticator() {
@@ -226,6 +231,7 @@ private[spark] class SecurityManager(sparkConf: SparkConf)
           val userInfo = getRequestingURL().getUserInfo()
           if (userInfo != null) {
             val  parts = userInfo.split(":", 2)
+            //                                     userName      password
             passAuth = new PasswordAuthentication(parts(0), parts(1).toCharArray())
           }
           return passAuth
