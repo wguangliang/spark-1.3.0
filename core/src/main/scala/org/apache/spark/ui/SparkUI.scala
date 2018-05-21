@@ -46,6 +46,7 @@ private[spark] class SparkUI private (
   val killEnabled = sc.map(_.conf.getBoolean("spark.ui.killEnabled", true)).getOrElse(false)
 
   /** Initialize all components of the server. */
+  // 服务器是初始化
   def initialize() {
     attachTab(new JobsTab(this))
     val stagesTab = new StagesTab(this)
@@ -144,8 +145,9 @@ private[spark] object SparkUI {
     val environmentListener = new EnvironmentListener
     //  维护Executor的存储状态的StorageStatusListener
     val storageStatusListener = new StorageStatusListener
-    //  用于
+    //  用于维护Executor的存储状态
     val executorsListener = new ExecutorsListener(storageStatusListener)
+    // 用于准备将Executor相关存储信息展示在BlockManagerUI的StorageListener
     val storageListener = new StorageListener(storageStatusListener)
 
     listenerBus.addListener(environmentListener)
