@@ -34,8 +34,10 @@ import org.apache.spark.{Logging, SparkException, SparkConf}
  * set of active threads and redo the calculations of 1 / 2N and 1 / N in waiting threads whenever
  * this set changes. This is all done by synchronizing access on "this" to mutate state and using
  * wait() and notifyAll() to signal changes.
+ * 负责管理shuffle线程占用内存的分配和释放，并通过threadMemory:mutable.HashMap[Long, Long]缓存每个线程的内存字节数
  */
 private[spark] class ShuffleMemoryManager(maxMemory: Long) extends Logging {
+  // 缓存每个线程的内存字节数
   private val threadMemory = new mutable.HashMap[Long, Long]()  // threadId -> memory bytes
 
   def this(conf: SparkConf) = this(ShuffleMemoryManager.getMaxMemory(conf))
@@ -117,6 +119,8 @@ private object ShuffleMemoryManager {
    * Figure out the shuffle memory limit from a SparkConf. We currently have both a fraction
    * of the memory pool and a safety factor since collections can sometimes grow bigger than
    * the size we target before we estimate their sizes again.
+   * //获取shuffle所有线程占用的最大内存
+   *   shuffle所有线程占用的最大内存：Java运行时最大内存*Spark的shuffle最大内存占比*Spark的安全内存占比
    */
   def getMaxMemory(conf: SparkConf): Long = {
     val memoryFraction = conf.getDouble("spark.shuffle.memoryFraction", 0.2)

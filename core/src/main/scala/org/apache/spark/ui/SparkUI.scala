@@ -103,6 +103,7 @@ private[spark] object SparkUI {
       jobProgressListener: JobProgressListener,
       securityManager: SecurityManager,
       appName: String): SparkUI =  {
+    // 创建SparkUI
     create(Some(sc), conf, listenerBus, securityManager, appName,
       jobProgressListener = Some(jobProgressListener))
   }
@@ -138,8 +139,12 @@ private[spark] object SparkUI {
       listener
     }
 
+    // 一共包括4个监听器SparkListener的实现：
+    //  对JVM参数，spark属性，java系统属性，classpath等进行监控的EnvironmentListener
     val environmentListener = new EnvironmentListener
+    //  维护Executor的存储状态的StorageStatusListener
     val storageStatusListener = new StorageStatusListener
+    //  用于
     val executorsListener = new ExecutorsListener(storageStatusListener)
     val storageListener = new StorageListener(storageStatusListener)
 

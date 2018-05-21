@@ -72,6 +72,7 @@ private[spark] class HttpServer(
    * in the event of port collision. Return the bound server and the actual port used.
    */
   private def doStart(startPort: Int): (Server, Int) = {
+    // 内嵌Jetty所提供的HTTP服务
     val server = new Server()
 
     val connector = securityManager.fileServerSSLOptions.createJettySslContextFactory()

@@ -50,8 +50,11 @@ class JobProgressListener(conf: SparkConf) extends SparkListener with Logging {
   type ExecutorId = String
 
   // Jobs:
+  //  激活
   val activeJobs = new HashMap[JobId, JobUIData]
+  //  完成
   val completedJobs = ListBuffer[JobUIData]()
+  //  失败
   val failedJobs = ListBuffer[JobUIData]()
   val jobIdToData = new HashMap[JobId, JobUIData]
 

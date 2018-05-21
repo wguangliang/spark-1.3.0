@@ -293,7 +293,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       listenerBus: LiveListenerBus): SparkEnv = {
     SparkEnv.createDriverEnv(conf, isLocal, listenerBus)
   }
-  // 创建SparkEnv
+  // ToDo 1）创建SparkEnv
   private[spark] val env = createSparkEnv(conf, isLocal, listenerBus)
   SparkEnv.set(env)
 
@@ -302,11 +302,16 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   private[spark] val addedJars = HashMap[String, Long]()
 
   // Keeps track of all persisted RDDs
-  private[spark] val persistentRdds = new TimeStampedWeakValueHashMap[Int, RDD[_]]
+  private[spark] val persistentRdds = new TimeStampedWeakValueHashMap[Int, RDD[_]] // 保持对所有持久化的RDD的跟踪
+  // ToDo 2）创建metadataCleaner  用于清除过期的持久化RDD
+  // 不断调用cleanupFunc方法，即第二个参数this.cleanup方法
   private[spark] val metadataCleaner =
     new MetadataCleaner(MetadataCleanerType.SPARK_CONTEXT, this.cleanup, conf)
 
 
+  // JobProgressListener
+  //  是SparkContext中一个重要组成部分，通过监听listenerBus中的事件更新任务进度。
+  //  SparkStatusTracker和SparkUI实际上通过JobProgressListener来实现任务状态跟踪的。
   private[spark] val jobProgressListener = new JobProgressListener(conf)
   listenerBus.addListener(jobProgressListener)
 
@@ -320,9 +325,10 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
 
   // Initialize the Spark UI
-  // 初始化spark ui
+  // Todo 3）初始化spark ui
+  //  用浏览器访问监控数据。采用事件监听机制
   private[spark] val ui: Option[SparkUI] =
-  if (conf.getBoolean("spark.ui.enabled", true)) {
+  if (conf.getBoolean("spark.ui.enabled", true)) {  // 如果不需要SparkUI服务，可以将属性spark.ui.enabled设置为false
     // 通过SparkUI的createLiveUI方法来创建
       Some(SparkUI.createLiveUI(this, conf, listenerBus, jobProgressListener,
         env.securityManager,appName))

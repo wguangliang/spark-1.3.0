@@ -36,12 +36,15 @@ private[spark] class HttpFileServer(
   var serverUri : String = null
 
   def initialize() {
+    // 创建根目录及临时目录
     baseDir = Utils.createTempDir(Utils.getLocalDir(conf), "httpd")
     fileDir = new File(baseDir, "files")
+    // 创建存放jar包及其他文件的文件目录
     jarDir = new File(baseDir, "jars")
     fileDir.mkdir()
     jarDir.mkdir()
     logInfo("HTTP File server directory is " + baseDir)
+    // 创建并启动HTTP服务
     httpServer = new HttpServer(conf, baseDir, securityManager, requestedPort, "HTTP file server")
     httpServer.start()
     serverUri = httpServer.uri

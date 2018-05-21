@@ -23,6 +23,7 @@ import org.apache.spark.{Logging, SparkConf}
 
 /**
  * Runs a timer task to periodically clean up metadata (e.g. old files or hashtable entries)
+ * 定期清除过期的持久化RDD
  */
 private[spark] class MetadataCleaner(
     cleanerType: MetadataCleanerType.MetadataCleanerType,
@@ -34,9 +35,10 @@ private[spark] class MetadataCleaner(
 
   private val delaySeconds = MetadataCleaner.getDelaySeconds(conf, cleanerType)
   private val periodSeconds = math.max(10, delaySeconds / 10)
+  //
   private val timer = new Timer(name + " cleanup timer", true)
 
-
+  // TimerTask implement Runnable接口，不断调用cleanupFunc方法
   private val task = new TimerTask {
     override def run() {
       try {

@@ -222,6 +222,12 @@ private[spark] abstract class MapOutputTracker(conf: SparkConf) extends Logging 
 /**
  * MapOutputTracker for the driver. This uses TimeStampedHashMap to keep track of map
  * output information, which allows old output information based on a TTL.
+ * MapOutputTrackerMaster内部使用mapStatuses：TimeStampedHashMap[Int, Array[MapStatus]]()来维护跟踪各个map任务的输出状态
+ *  其中key对应shuffleId，value中Array存储各个map任务对应的状态信息MapStatus。
+ *  由于MapStatus维护了map输出Block的地址BlockManagerId，所以reduce任务知道从何处获取map任务的中间结果
+ *
+ * MapOutputTrackerMaster还是用cachedSerializedStatus:TimeStampedHashMap[Int, Array[Byte]]()维护序列化后的各个map任务的输出状态
+ *  其中key对应shuffleId，value中Array存储各个序列化 MapStatus生成的字节数组。
  */
 private[spark] class MapOutputTrackerMaster(conf: SparkConf)
   extends MapOutputTracker(conf) {
@@ -234,7 +240,9 @@ private[spark] class MapOutputTrackerMaster(conf: SparkConf)
    * so that statuses are dropped only by explicit de-registering or by TTL-based cleaning (if set).
    * Other than these two scenarios, nothing should be dropped from this HashMap.
    */
+  // 来维护跟踪各个map任务的输出状态
   protected val mapStatuses = new TimeStampedHashMap[Int, Array[MapStatus]]()
+  // 维护序列化后的各个map任务的输出状态
   private val cachedSerializedStatuses = new TimeStampedHashMap[Int, Array[Byte]]()
 
   // For cleaning up TimeStampedHashMaps

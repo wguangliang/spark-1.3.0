@@ -235,11 +235,12 @@ object SparkEnv extends Logging {
     }
 
 
-    // 安全管理器SecurityManager
+    // ToDo 1）创建安全管理器SecurityManager
 
     val securityManager = new SecurityManager(conf)
 
     // Create the ActorSystem for Akka and get the port it binds to.
+    // ToDo 2） 创建ActorSystem
     val (actorSystem, boundPort) = {
       val actorSystemName = if (isDriver) driverActorSystemName else executorActorSystemName
       AkkaUtils.createActorSystem(actorSystemName, hostname, port, conf, securityManager)
@@ -290,22 +291,30 @@ object SparkEnv extends Logging {
       "spark.closure.serializer", "org.apache.spark.serializer.JavaSerializer")
 
     def registerOrLookup(name: String, newActor: => Actor): ActorRef = {
+      // 如果是driver，则注册
       if (isDriver) {
         logInfo("Registering " + name)
         actorSystem.actorOf(Props(newActor), name = name)
       } else {
+        // 如果是Executor，则通过调用AkkaUtils.makeDriverDef找到mapOutputTrackerMasterActor
         AkkaUtils.makeDriverRef(name, conf, actorSystem)
       }
     }
 
+    // ToDo 3）map任务输出跟踪器mapOutputTracker
+    // mapOutputTracker用于跟踪map阶段任务的输出状态，此状态便于reduce阶段任务获取地址及中间输出结果。
+    // 每个map任务或reduce任务都会有其唯一标识，分别为mapId和reduceId。每个reduce任务的输入可能是多个map任务的输出，
+    //    reduce会到各个map任务的所有节点上拉取Block。这个过程叫做shuffle。每批shuffle过程都有唯一的标识shuffleId
     val mapOutputTracker =  if (isDriver) {
-      new MapOutputTrackerMaster(conf)
+      new MapOutputTrackerMaster(conf) // 是driver，则创建 MapOutputTrackerMaster，然后创建MapOutputTrackerMasterActor，并且注册到ActorSystem
     } else {
-      new MapOutputTrackerWorker(conf)
+      new MapOutputTrackerWorker(conf) // 不是driver，是Executor，则创建 MapOutputTrackerWorker， 并从ActorSystem中找到MapOutputTrackerMasterActor
     }
 
     // Have to assign trackerActor after initialization as MapOutputTrackerActor
     // requires the MapOutputTracker itself
+    // MapOutputTrackerMasterActor和MapOutputTrackerWorkerActor进行关联
+    // map任务的状态正式由Executor向持有的MapOutputTrackerMasterActor发送消息，将map任务状态同步到mapOutputTracker的mapStatuses和cachedSerializedStatuses的
     mapOutputTracker.trackerActor = registerOrLookup(
       "MapOutputTracker",
       new MapOutputTrackerMasterActor(mapOutputTracker.asInstanceOf[MapOutputTrackerMaster], conf))
@@ -313,16 +322,24 @@ object SparkEnv extends Logging {
     // Let the user specify short names for shuffle managers
     /**
       *  默认shuffle方式
+      *  Todo 4）实例化ShuffleManager
+      *  ShuffleManager 负责管理本地及远程的block数据的shuffle操作
       */
     val shortShuffleMgrNames = Map(
       "hash" -> "org.apache.spark.shuffle.hash.HashShuffleManager",
       "sort" -> "org.apache.spark.shuffle.sort.SortShuffleManager")
-    val shuffleMgrName = conf.get("spark.shuffle.manager", "sort")
+    val shuffleMgrName = conf.get("spark.shuffle.manager", "sort") // 可以修改为shuffle来显示控制使用使用HashShuffleManager
     val shuffleMgrClass = shortShuffleMgrNames.getOrElse(shuffleMgrName.toLowerCase, shuffleMgrName)
+    // 默认为通过反射方式生成的SortShuffleManager实例
+    // SortShuffleManager间接操作BlockManager中的DiskBlockManager将map结果写入本地，并根据shuffleId、mapId写入索引文件，
+    //  也能通过MapOutputTrackerMaster中维护的mapStatuses从本地或者其他远程节点读取文件
     val shuffleManager = instantiateClass[ShuffleManager](shuffleMgrClass)
 
+    // ToDo 5）创建shufflememorymanger，负责管理shuffle线程占用内存的分配和释放，并通过threadMemory:mutable.HashMap[Long, Long]缓存每个线程的内存字节数
     val shuffleMemoryManager = new ShuffleMemoryManager(conf)
 
+    // ToDo 6）块传输服务BlockTransferService
+    //  默认为NettyBlockTransferService(可以配置属性spark.shuffle.blockTransferService使用NioBlockTransferService)
     val blockTransferService =
       conf.get("spark.shuffle.blockTransferService", "netty").toLowerCase match {
         case "netty" =>
@@ -331,22 +348,35 @@ object SparkEnv extends Logging {
           new NioBlockTransferService(conf, securityManager)
       }
 
+    // ToDo 7）创建BlockManagerMaster负责对Block的管理和协调。具体操作依赖于BlockManagerMasterActor。
+    //    Driver和Executor处理BlockManagerMaster的方式不同：
+    //      如果当前应用程序是driver，则创建BlockManagerMasterActor，并且注册到ActorSystem中
+    //      如果当前应用程序是Executor，则从ActorSystem中找到BlockManagerMasterActor
     val blockManagerMaster = new BlockManagerMaster(registerOrLookup(
       "BlockManagerMaster",
       new BlockManagerMasterActor(isLocal, conf, listenerBus)), conf, isDriver)
 
+    // ToDo 8）创建块管理器 BlockManager
+    //  负责对Block的管理。只有在BlockManager的初始化方法initialize被调用后，它才是有效的
     // NB: blockManager is not valid until initialize() is called later.
     val blockManager = new BlockManager(executorId, actorSystem, blockManagerMaster,
       serializer, conf, mapOutputTracker, shuffleManager, blockTransferService, securityManager,
       numUsableCores)
 
+    // ToDo 9）创建广播管理器
+    //  用于将配置信息和序列化后的RDD、Job以及ShuffleDependence等信息在本地存储
     val broadcastManager = new BroadcastManager(isDriver, conf, securityManager)
 
+    // ToDo 10）创建缓存管理器 CacheManager。
+    //   用于缓存RDD某个分区计算后的中间结果
     val cacheManager = new CacheManager(blockManager)
 
+    // ToDo 11）HTTP文件服务器HttpFileServer
+    //   主要提供对jar及其他文件的http访问。这些jar包括用户上传的jar包。端口由属性spark.fileserver.port配置，默认为0，表示随机生成端口号
     val httpFileServer =
+     // 只有在driver端创建
       if (isDriver) {
-        val fileServerPort = conf.getInt("spark.fileserver.port", 0)
+        val fileServerPort = conf.getInt("spark.fileserver.port", 0)  // 默认为0，表示随机生成端口号
         val server = new HttpFileServer(conf, securityManager, fileServerPort)
         server.initialize()
         conf.set("spark.fileserver.uri",  server.serverUri)
@@ -355,6 +385,8 @@ object SparkEnv extends Logging {
         null
       }
 
+    // ToDo 12）创建Spark的测量系统
+    //  衡量系统的各种指标的度量
     val metricsSystem = if (isDriver) {
       // Don't start metrics system right now for Driver.
       // We need to wait for the task scheduler to give us an app ID.
@@ -392,6 +424,7 @@ object SparkEnv extends Logging {
       new OutputCommitCoordinatorActor(outputCommitCoordinator))
     outputCommitCoordinator.coordinatorActor = Some(outputCommitCoordinatorActor)
 
+    // ToDo 创建SparkEnv
     new SparkEnv(
       executorId,
       actorSystem,
