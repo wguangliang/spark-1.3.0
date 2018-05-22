@@ -50,7 +50,7 @@ import org.apache.spark.util.{ActorLogReceive, Utils, AkkaUtils}
  */
 private[spark] class AppClient(
     actorSystem: ActorSystem,
-    masterUrls: Array[String], //master的url
+    masterUrls: Array[String], // master的url
     appDescription: ApplicationDescription,
     listener: AppClientListener,
     conf: SparkConf)
@@ -66,7 +66,7 @@ private[spark] class AppClient(
   var appId: String = null
   var registered = false
   var activeMasterUrl: String = null
-  //与master进行通信的类client actor
+  // 与master进行通信的类client actor
   class ClientActor extends Actor with ActorLogReceive with Logging {
     var master: ActorSelection = null
     var alreadyDisconnected = false  // To avoid calling listener.disconnected() multiple times
@@ -76,7 +76,7 @@ private[spark] class AppClient(
     override def preStart() {
       context.system.eventStream.subscribe(self, classOf[RemotingLifecycleEvent])
       try {
-        registerWithMaster() //向master进行注册，所以这是个与master进行通信的actor
+        registerWithMaster() // 向master进行注册，所以这是个与master进行通信的actor
       } catch {
         case e: Exception =>
           logWarning("Failed to connect to master", e)
@@ -86,15 +86,15 @@ private[spark] class AppClient(
     }
 
     def tryRegisterAllMasters() {
-      for (masterAkkaUrl <- masterAkkaUrls) {  //遍历多个master url
+      for (masterAkkaUrl <- masterAkkaUrls) {  // 遍历多个master url
         logInfo("Connecting to master " + masterAkkaUrl + "...")
-        val actor = context.actorSelection(masterAkkaUrl) //建立连接
-        actor ! RegisterApplication(appDescription)   //向master发送应用描述的请求
+        val actor = context.actorSelection(masterAkkaUrl) // 建立连接
+        actor ! RegisterApplication(appDescription)   // 向master发送应用描述的请求
       }
     }
 
     def registerWithMaster() {
-      tryRegisterAllMasters()   //重试注册
+      tryRegisterAllMasters()   // 重试注册
       import context.dispatcher
       var retries = 0
       registrationRetryTimer = Some {

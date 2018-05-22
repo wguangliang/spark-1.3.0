@@ -95,6 +95,7 @@ private[spark] class LocalActor(
  * LocalBackend is used when running a local version of Spark where the executor, backend, and
  * master all run in the same JVM. It sits behind a TaskSchedulerImpl and handles launching tasks
  * on a single Executor (created by the LocalBackend) running locally.
+  *  依赖LocalActor与ActorSystem进行消息通信
  */
 private[spark] class LocalBackend(scheduler: TaskSchedulerImpl, val totalCores: Int)
   extends SchedulerBackend with ExecutorBackend {

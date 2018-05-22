@@ -94,7 +94,9 @@ private[spark] class MetricsSystem private (
   def start() {
     require(!running, "Attempting to start a MetricsSystem that is already running")
     running = true
+    // 注册Sources
     registerSources()
+    // 注册Sinks
     registerSinks()
     sinks.foreach(_.start)
   }

@@ -41,12 +41,12 @@ private[spark] class SparkDeploySchedulerBackend(
 
   val maxCores = conf.getOption("spark.cores.max").map(_.toInt)
   val totalExpectedCores = maxCores.getOrElse(0)
-  //这个start方法主要做了两个actor
-  //1.super.start方法创建driver actor与executor进行通信
-  //2.创建client actor与master进行通信
+  // 这个start方法主要做了两个actor
+  // 1.super.start方法创建driver actor与executor进行通信
+  // 2.创建client actor与master进行通信
   override def start() {
-    //先调用父类的start方法。在父类的start方法中，出现了driver actor!
-    //driver actor是与executor进行通信的
+    // 先调用父类的start方法。在父类的start方法中，出现了driver actor!
+    // driver actor是与executor进行通信的
     super.start()
 
     // The endpoint for executors to talk to us
@@ -83,18 +83,18 @@ private[spark] class SparkDeploySchedulerBackend(
     // Start executors with a few necessary configs for registering with the scheduler
     val sparkJavaOpts = Utils.sparkJavaOpts(conf, SparkConf.isExecutorStartupConf)
     val javaOpts = sparkJavaOpts ++ extraJavaOpts
-    //executor真正的名字叫CoarseGrainedExecutorBackend，将要启动的executor类型发送给master，然后master寻找资源充足的节点发送给给worker启动该类型的executor
-    //Command是个case class用于封装数据
+    // executor真正的名字叫CoarseGrainedExecutorBackend，将要启动的executor类型发送给master，然后master寻找资源充足的节点发送给给worker启动该类型的executor
+    // Command是个case class用于封装数据
     val command = Command("org.apache.spark.executor.CoarseGrainedExecutorBackend",
       args, sc.executorEnvs, classPathEntries ++ testingClassPath, libraryPathEntries, javaOpts)
     val appUIAddress = sc.ui.map(_.appUIAddress).getOrElse("")
-    //ApplicationDescription封装用户提交应用的信息，用于client actor向master提交的应用程序信息的封装
+    // ApplicationDescription封装用户提交应用的信息，用于client actor向master提交的应用程序信息的封装
     val appDesc = new ApplicationDescription(sc.appName, maxCores, sc.executorMemory, command,
       appUIAddress, sc.eventLogDir, sc.eventLogCodec)
 
-    //创建client actor将用户提交的应用信息传入master
+    // 创建client actor将用户提交的应用信息传入master
     client = new AppClient(sc.env.actorSystem, masters, appDesc, this, conf)
-    //创建并启动client actor与master进行通信
+    // 创建并启动client actor与master进行通信
     client.start()
 
     waitForRegistration()

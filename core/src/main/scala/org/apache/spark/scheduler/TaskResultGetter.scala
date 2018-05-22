@@ -30,11 +30,12 @@ import org.apache.spark.util.Utils
 
 /**
  * Runs a thread pool that deserializes and remotely fetches (if necessary) task results.
+ * 通过线程池（Executors.newFixedThreadPool创建的，默认4个线程，线程名字以task-result-getter开头，对Worker上的Executor发送的task的执行结果进行处理）
  */
 private[spark] class TaskResultGetter(sparkEnv: SparkEnv, scheduler: TaskSchedulerImpl)
   extends Logging {
 
-  private val THREADS = sparkEnv.conf.getInt("spark.resultGetter.threads", 4)
+  private val THREADS = sparkEnv.conf.getInt("spark.resultGetter.threads", 4) // 线程池，默认4个线程
   private val getTaskResultExecutor = Utils.newDaemonFixedThreadPool(
     THREADS, "task-result-getter")
 

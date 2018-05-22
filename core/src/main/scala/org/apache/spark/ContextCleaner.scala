@@ -54,14 +54,18 @@ private class CleanupTaskWeakReference(
  */
 private[spark] class ContextCleaner(sc: SparkContext) extends Logging {
 
+  // 缓存AnyRef的虚引用
   private val referenceBuffer = new ArrayBuffer[CleanupTaskWeakReference]
     with SynchronizedBuffer[CleanupTaskWeakReference]
 
+  // 存储顶级的AnyRef应用
   private val referenceQueue = new ReferenceQueue[AnyRef]
 
+  // 缓存清理工作的监听器数组
   private val listeners = new ArrayBuffer[CleanerListener]
     with SynchronizedBuffer[CleanerListener]
 
+  // 线程 调用keepCleaning方法
   private val cleaningThread = new Thread() { override def run() { keepCleaning() }}
 
   /**

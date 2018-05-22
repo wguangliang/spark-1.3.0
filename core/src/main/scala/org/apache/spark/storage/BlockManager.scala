@@ -61,6 +61,16 @@ private[spark] class BlockResult(
  * retrieving blocks both locally and remotely into various stores (memory, disk, and off-heap).
  *
  * Note that #initialize() must be called before the BlockManager is usable.
+ * BlockManager主要由以下部分组成：
+ * 1）shuffle客户端ShuffleClient
+ * 2）BlockManagerMaster（对存在于所有Executor上的BlockManager统一管理）
+ * 3）磁盘块管理器DiskBlockManager
+ * 4）内存存储MemoryStore
+ * 5）磁盘存储DiskStore
+ * 6）Tachyon存储TachyonStore
+ * 7）非广播Block清理器metadataCleaner和广播Block清理器broadcastCleaner
+ * 8）压缩算法实现CompressionCodec
+ *
  */
 private[spark] class BlockManager(
     executorId: String,
@@ -78,6 +88,7 @@ private[spark] class BlockManager(
 
   val diskBlockManager = new DiskBlockManager(this, conf)
 
+  // 缓存BlockId与BlockInfo的对应关系
   private val blockInfo = new TimeStampedHashMap[BlockId, BlockInfo]
 
   // Actual storage of where blocks are kept

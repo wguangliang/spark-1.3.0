@@ -241,7 +241,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
       }
     }
     // TODO (prashant) send conf instead of properties
-    //创建driver actor是与executor进行通信的
+    // 创建driver actor是与executor进行通信的
     driverActor = actorSystem.actorOf(
       Props(new DriverActor(properties)), name = CoarseGrainedSchedulerBackend.ACTOR_NAME)
   }

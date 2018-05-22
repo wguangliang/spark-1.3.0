@@ -140,7 +140,7 @@ private[spark] class Master(
     context.system.eventStream.subscribe(self, classOf[RemotingLifecycleEvent])
     webUi.bind()
     masterWebUiUrl = "http://" + masterPublicAddress + ":" + webUi.boundPort
-    //定时任务，用来检测超时的Worker节点
+    // 定时任务，用来检测超时的Worker节点
     context.system.scheduler.schedule(0 millis, WORKER_TIMEOUT millis, self, CheckForWorkerTimeOut)
 
     masterMetricsSystem.registerSource(masterSource)
@@ -202,7 +202,7 @@ private[spark] class Master(
     self ! RevokedLeadership
   }
 
-  override def receiveWithLogging = { //其实就是Actor.Receive方法
+  override def receiveWithLogging = { // 其实就是Actor.Receive方法
     case ElectedLeader => {
       val (storedApps, storedDrivers, storedWorkers) = persistenceEngine.readPersistedData()
       state = if (storedApps.isEmpty && storedDrivers.isEmpty && storedWorkers.isEmpty) {
@@ -224,22 +224,22 @@ private[spark] class Master(
       logError("Leadership has been revoked -- master shutting down.")
       System.exit(0)
     }
-    //当接收到Worker发过来的worker节点信息
+    // 当接收到Worker发过来的worker节点信息
     case RegisterWorker(id, workerHost, workerPort, cores, memory, workerUiPort, publicAddress) =>
     {
       logInfo("Registering worker %s:%d with %d cores, %s RAM".format(
         workerHost, workerPort, cores, Utils.megabytesToString(memory)))
-      if (state == RecoveryState.STANDBY) { //如果该master是standby状态，忽略
+      if (state == RecoveryState.STANDBY) { // 如果该master是standby状态，忽略
         // ignore, don't send response
-      } else if (idToWorker.contains(id)) { //如果已经注册的worker队列里存在
+      } else if (idToWorker.contains(id)) { // 如果已经注册的worker队列里存在
         sender ! RegisterWorkerFailed("Duplicate worker ID")
-      } else { //进行注册
+      } else { // 进行注册
         val worker = new WorkerInfo(id, workerHost, workerPort, cores, memory,
           sender, workerUiPort, publicAddress)
         if (registerWorker(worker)) {
-          persistenceEngine.addWorker(worker) //持久化引擎，持久化worker信息
-          sender ! RegisteredWorker(masterUrl, masterWebUiUrl) //master向worker发送注册成功的信息（master的url，master的webui的url）
-          schedule()  //资源的调度
+          persistenceEngine.addWorker(worker) // 持久化引擎，持久化worker信息
+          sender ! RegisteredWorker(masterUrl, masterWebUiUrl) // master向worker发送注册成功的信息（master的url，master的webui的url）
+          schedule()  // 资源的调度
         } else {
           val workerAddress = worker.actor.path.address
           logWarning("Worker registration failed. Attempted to re-register worker at same " +

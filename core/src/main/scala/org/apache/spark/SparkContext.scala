@@ -347,7 +347,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
    *
    * '''Note:''' As it will be reused in all Hadoop RDDs, it's better not to modify it unless you
    * plan to set some global configurations for all Hadoop RDDs.
-   *  默认情况下，Spark使用HDFS作为分布式文件系统，所以需要Hadoop相关配置信息
+   *  Todo 4）默认情况下，Spark使用HDFS作为分布式文件系统，所以需要获取Hadoop相关配置信息
    */
   val hadoopConfiguration = SparkHadoopUtil.get.newConfiguration(conf)
 
@@ -394,17 +394,21 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   val sparkUser = Utils.getCurrentUserName()
   executorEnvs("SPARK_USER") = sparkUser
 
-  // Create and start the scheduler
-  // （1）创建TaskScheduler 根据不同的masterUrl，生成不同的schedulerBackend和taskScheduler
+  // Todo 5） Create and start the scheduler  创建TaskScheduler
+  // （1）创建TaskScheduler 根据不同的masterUrl，生成不同的schedulerBackend:CoarseGrainedSchedulerBackend和taskScheduler:TaskSchedulerImpl
   // createTaskScheduler方法总共做了三件事：
-  // 1）创建TaskSchedulerImpl,
-  // 2）创建它底层基于的SparkDeploySchedulerBackend，
-  // 3）调用TaskSchedulerImpl的initialize方法，根据调度器（两种）创建调度池
+  // 1）根据masterUrl的匹配部署模式，创建TaskSchedulerImpl,
+  // 2）创建它底层基于的SchedulerBackend，
+  // 3）调用TaskSchedulerImpl的initialize方法，根据调度器（两种）创建调度池：FAIR和FIFO
+  //关系：TaskScheduler维护task和Executor对应关系，Executor和物理资源对应关系，在排队的task和正在执行的task。内部维护一个任务队列，根据FIFO或FAIR策略，调度提交任务。SchedulerBackend维护executor相关信息。创建Driver Actor和Client Actor，分别于Worker和Master通信，收集分配给应用使用的资源情况
   private[spark] var (schedulerBackend, taskScheduler) =
   SparkContext.createTaskScheduler(this, master)  // this传递的是SparkContext； master为程序中的master：local或者yarn 等等
   // 创建一个driver与executor的心跳检测的ActorSystem
   private val heartbeatReceiver = env.actorSystem.actorOf(
     Props(new HeartbeatReceiver(taskScheduler)), "HeartbeatReceiver")
+
+  // ToDo 6）创建和启动DAGScheduler
+  // DAGScheduler主要用于在任务正式交给TaskSchedulerImpl提交之前做一些准备工作。包括创建Job，将DAG中的RDD划分不同的Stage，提交Stage
   @volatile private[spark] var dagScheduler: DAGScheduler = _
   try {
     // （2）创建DAGScheduler ，以后用来把DAG切分成Stage 。 不同的masterUrl生成不同的schedulerBackend和taskScheduler，但是DAGScheduler是一样的
@@ -421,20 +425,23 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
 
   // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
   // constructor
-  // 启动TaskScheduler
-  taskScheduler.start()
+  // Todo 7）TaskScheduler的启动
+  taskScheduler.start() // 实际上调用的backend的start方法
 
   val applicationId: String = taskScheduler.applicationId()
   conf.set("spark.app.id", applicationId)
 
+  // ToDo 8） 初始化blockManager
   env.blockManager.initialize(applicationId)
 
+  // ToDo 9）启动测量系统MetricsSystem
   val metricsSystem = env.metricsSystem
 
   // The metrics system for Driver need to be set spark.app.id to app ID.
   // So it should start after we get app ID from the task scheduler and set spark.app.id.
-  metricsSystem.start()
+  metricsSystem.start()  // 注册Sources 注册Sinks
   // Attach the driver metrics servlet handler to the web ui after the metrics system is started.
+  // 给Sinks增加Jetty的ServletContextHandler
   metricsSystem.getServletHandlers.foreach(handler => ui.foreach(_.attachHandler(handler)))
 
   // Optionally log Spark events
@@ -449,10 +456,11 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   }
 
   // Optionally scale number of executors dynamically based on workload. Exposed for testing.
-  private val dynamicAllocationEnabled = conf.getBoolean("spark.dynamicAllocation.enabled", false)
+  private val dynamicAllocationEnabled = conf.getBoolean("spark.dynamicAllocation.enabled", false)  // 这里设置为true，即可动态调整资源分配
   private val dynamicAllocationTesting = conf.getBoolean("spark.dynamicAllocation.testing", false)
+  // ToDo 10）创建和启动ExecutorAllocationManager 用于对已分配的Executor进行管理
   private[spark] val executorAllocationManager: Option[ExecutorAllocationManager] =
-    if (dynamicAllocationEnabled) {
+    if (dynamicAllocationEnabled) {  // 默认不会创建
       assert(master.contains("yarn") || dynamicAllocationTesting,
         "Dynamic allocation of executors is currently only supported in YARN mode")
       Some(new ExecutorAllocationManager(this, listenerBus, conf))
@@ -461,6 +469,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
   executorAllocationManager.foreach(_.start())
 
+  // ToDo 11） ContextCleaner的创建与启动
+  //  用于清理那些超出应用范围的RDD、ShuffleDependency和Broadcast对象
   private[spark] val cleaner: Option[ContextCleaner] = {
     if (conf.getBoolean("spark.cleaner.referenceTracking", true)) {
       Some(new ContextCleaner(this))
@@ -471,6 +481,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   cleaner.foreach(_.start())
 
   setupAndStartListenerBus()
+  // ToDo 12） Spark环境更新
   postEnvironmentUpdate()
   postApplicationStart()
 
@@ -584,8 +595,10 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   }
 
   // Post init
+  // 等待backend就绪
   taskScheduler.postStartHook()
 
+  // ToDo 13） 创建DAGSchedulerSource 和 BlockManagerSource
   private val dagSchedulerSource = new DAGSchedulerSource(this.dagScheduler)
   private val blockManagerSource = new BlockManagerSource(SparkEnv.get.blockManager)
 
@@ -1801,6 +1814,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   // In order to prevent multiple SparkContexts from being active at the same time, mark this
   // context as having finished construction.
   // NOTE: this must be placed at the end of the SparkContext constructor.
+  // ToDO 14）将SparkContext标记为激活
+  //   将当前SparkContext的状态从contextBeingConstructed（正在构建中）改为activeContext（已激活）
   SparkContext.setActiveContext(this, allowMultipleContexts)
 }
 
@@ -2222,9 +2237,9 @@ SparkContext extends Logging {
 
     master match {
       case "local" =>  // 本地提交模式
-        val scheduler = new TaskSchedulerImpl(sc, MAX_LOCAL_TASK_FAILURES, isLocal = true)
-        val backend = new LocalBackend(scheduler, 1)
-        scheduler.initialize(backend)
+        val scheduler = new TaskSchedulerImpl(sc, MAX_LOCAL_TASK_FAILURES, isLocal = true)  // 进入
+        val backend = new LocalBackend(scheduler, 1)   // 进入
+        scheduler.initialize(backend) // 初始化
         (backend, scheduler)
 
       case LOCAL_N_REGEX(threads) =>
