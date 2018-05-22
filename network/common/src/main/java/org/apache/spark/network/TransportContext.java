@@ -62,10 +62,11 @@ public class TransportContext {
   private final MessageDecoder decoder;
 
   public TransportContext(TransportConf conf, RpcHandler rpcHandler) {
-    this.conf = conf;
-    this.rpcHandler = rpcHandler;
-    this.encoder = new MessageEncoder();
-    this.decoder = new MessageDecoder();
+    this.conf = conf;  // 主要控制Netty框架提供的Shuffle的I/O交互的客户端和服务端线程数量
+    this.rpcHandler = rpcHandler;  // 负责shuffle的I/O服务端在接收到客户端的RPC请求后，提供打开Block或者上传Block的RPC处理。
+                                   // 此处即为NettyBlockRpcServer
+    this.encoder = new MessageEncoder(); // 在shuffle的I/O服务端对客户端传来的ByteBuf进行解析，防止丢包和解析错误。
+    this.decoder = new MessageDecoder(); // 在shuffle的I/O客户端对消息内容进行编码，防止服务端丢包和解析错误
   }
 
   /**

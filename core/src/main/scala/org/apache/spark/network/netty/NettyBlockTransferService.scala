@@ -50,6 +50,7 @@ class NettyBlockTransferService(conf: SparkConf, securityManager: SecurityManage
 
   override def init(blockDataManager: BlockDataManager): Unit = {
     val (rpcHandler: RpcHandler, bootstrap: Option[TransportClientBootstrap]) = {
+      // 创建RpcServer
       val nettyRpcHandler = new NettyBlockRpcServer(serializer, blockDataManager)
       if (!authEnabled) {
         (nettyRpcHandler, None)
@@ -58,13 +59,25 @@ class NettyBlockTransferService(conf: SparkConf, securityManager: SecurityManage
           Some(new SaslClientBootstrap(transportConf, conf.getAppId, securityManager)))
       }
     }
+    // 创建TransportContext
     transportContext = new TransportContext(transportConf, rpcHandler)
+    // 创建RPC客户端工厂TransportClientFactory
+    // 用于向netty服务端发送RPC请求
     clientFactory = transportContext.createClientFactory(bootstrap.toList)
+    // 创建Netty服务器TransportServer，用于提供RPC服务（比如上传、下载等）
     server = transportContext.createServer(conf.getInt("spark.blockManager.port", 0))
     appId = conf.getAppId
     logInfo("Server created on " + server.getPort)
   }
 
+  /**
+    * 获取远程shuffle文件
+    * @param host
+    * @param port
+    * @param execId
+    * @param blockIds
+    * @param listener
+    */
   override def fetchBlocks(
       host: String,
       port: Int,

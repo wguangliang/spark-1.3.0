@@ -59,6 +59,7 @@ class NettyBlockRpcServer(
         logTrace(s"Registered streamId $streamId with ${blocks.size} buffers")
         responseContext.onSuccess(new StreamHandle(streamId, blocks.size).toByteArray)
 
+      // 上传Block文件的RPC服务
       case uploadBlock: UploadBlock =>
         // StorageLevel is serialized as bytes using our JavaSerializer.
         val level: StorageLevel =

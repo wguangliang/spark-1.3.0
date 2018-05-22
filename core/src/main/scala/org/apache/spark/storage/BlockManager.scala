@@ -131,10 +131,13 @@ private[spark] class BlockManager(
 
   // Client to read other executors' shuffle files. This is either an external service, or just the
   // standard BlockTransferService to directly connect to other Executors.
+  // shuffleClient不光是将Shuffle文件上传到其他Executor或者下载到本地的客户端，也提供了可以被其他Executor访问的Shuffle服务。
   private[spark] val shuffleClient = if (externalShuffleServiceEnabled) {
     val transConf = SparkTransportConf.fromSparkConf(conf, numUsableCores)
+    // 当有外部的ShuffleClient时，新建ExternalShuffleClient，否则默认为BlockTransferService。
     new ExternalShuffleClient(transConf, securityManager, securityManager.isAuthenticationEnabled())
   } else {
+    // 采用netty作为Shuffle server
     blockTransferService
   }
 

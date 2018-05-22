@@ -65,6 +65,7 @@ public class TransportServer implements Closeable {
     return port;
   }
 
+  // Netty服务器初始化
   private void init(int portToBind) {
 
     IOMode ioMode = IOMode.valueOf(conf.ioMode());
