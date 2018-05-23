@@ -32,31 +32,42 @@ import org.apache.spark.util.Utils
  *
  * Block files are hashed among the directories listed in spark.local.dir (or in
  * SPARK_LOCAL_DIRS, if it's set).
+ *  二级目录的好处在于，对文件进行散列存储，散列存储可以使所有文件都随机存放，写入或删除更方便，存取速度更快，节省空间。
  */
 private[spark] class DiskBlockManager(blockManager: BlockManager, conf: SparkConf)
   extends Logging {
 
   private[spark]
-  val subDirsPerLocalDir = blockManager.conf.getInt("spark.diskStore.subDirectories", 64)
+  val subDirsPerLocalDir = blockManager.conf.getInt("spark.diskStore.subDirectories", 64) // 二级目录的数量默认为64个。
 
   /* Create one local directory for each path mentioned in spark.local.dir; then, inside this
    * directory, create multiple subdirectories that we will hash files into, in order to avoid
    * having really large inodes at the top level. */
-  private[spark] val localDirs: Array[File] = createLocalDirs(conf)
+
+  private[spark] val localDirs: Array[File] = createLocalDirs(conf)  // 创建本地文件目录
+
   if (localDirs.isEmpty) {
     logError("Failed to create any local dir.")
     System.exit(ExecutorExitCode.DISK_STORE_FAILED_TO_CREATE_DIR)
   }
-  private val subDirs = Array.fill(localDirs.length)(new Array[File](subDirsPerLocalDir))
+  private val subDirs = Array.fill(localDirs.length)(new Array[File](subDirsPerLocalDir))  // 二维数组
 
-  private val shutdownHook = addShutdownHook()
+  private val shutdownHook = addShutdownHook() // 删除临时目录（添加环境运行结束的钩子）
 
   /** Looks up a file by hashing it into one of our local subdirectories. */
   // This method should be kept in sync with
   // org.apache.spark.network.shuffle.StandaloneShuffleBlockManager#getFile().
+  /**
+    * 处理步骤如下：
+    *  1）根据文件名计算哈希值
+    *  2）根据哈希值与本地文件一级目录的总数求余数，记为dirId
+    *  3）根据哈希值与本地文件一级目录的总数求商，此商数与二级目录的数目再求余数，记为subDirId
+    * @param filename
+    * @return
+    */
   def getFile(filename: String): File = {
     // Figure out which local directory it hashes to, and which subdirectory in that
-    val hash = Utils.nonNegativeHash(filename)
+    val hash = Utils.nonNegativeHash(filename) // 非负数hash值
     val dirId = hash % localDirs.length
     val subDirId = (hash / localDirs.length) % subDirsPerLocalDir
 
@@ -112,14 +123,20 @@ private[spark] class DiskBlockManager(blockManager: BlockManager, conf: SparkCon
   }
 
   /** Produces a unique block id and File suitable for storing shuffled intermediate results. */
+  // 创建临时Block方法
   def createTempShuffleBlock(): (TempShuffleBlockId, File) = {
-    var blockId = new TempShuffleBlockId(UUID.randomUUID())
+    var blockId = new TempShuffleBlockId(UUID.randomUUID()) // blockId生成规则是temp_shuffle_ 加上UUID字符串
     while (getFile(blockId).exists()) {
       blockId = new TempShuffleBlockId(UUID.randomUUID())
     }
     (blockId, getFile(blockId))
   }
 
+  /**
+    * 创建本地文件目录
+    * @param conf
+    * @return
+    */
   private def createLocalDirs(conf: SparkConf): Array[File] = {
     Utils.getOrCreateLocalRootDirs(conf).flatMap { rootDir =>
       try {

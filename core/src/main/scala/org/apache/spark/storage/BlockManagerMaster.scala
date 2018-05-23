@@ -28,7 +28,7 @@ import org.apache.spark.util.AkkaUtils
 
 private[spark]
 class BlockManagerMaster(
-    var driverActor: ActorRef,
+    var driverActor: ActorRef,  // BlockManagerMasterActor
     conf: SparkConf,
     isDriver: Boolean)
   extends Logging {
@@ -46,9 +46,11 @@ class BlockManagerMaster(
   }
 
   /** Register the BlockManager's id with the driver. */
+  // 向Driver的BlockManager注册BlockManager信息
+  // 该方法确保了每个Executor最多只能有一个blockManagerId，旧的blockManagerId会被移除
   def registerBlockManager(blockManagerId: BlockManagerId, maxMemSize: Long, slaveActor: ActorRef) {
     logInfo("Trying to register BlockManager")
-    tell(RegisterBlockManager(blockManagerId, maxMemSize, slaveActor))
+    tell(RegisterBlockManager(blockManagerId, maxMemSize, slaveActor))  // slaveActor 是为了便于接收BlockManagerMasterActor回复的消息
     logInfo("Registered BlockManager")
   }
 
@@ -216,6 +218,7 @@ class BlockManagerMaster(
   /**
    * Send a message to the driver actor and get its result within a default timeout, or
    * throw a SparkException if this fails.
+   * 在Executor的BlockManagerMaster中，所有与Driver上BlockManagerMaster的交互方法最终都调用了askDriverWithReply
    */
   private def askDriverWithReply[T](message: Any): T = {
     AkkaUtils.askWithReply(message, driverActor, AKKA_RETRY_ATTEMPTS, AKKA_RETRY_INTERVAL_MS,

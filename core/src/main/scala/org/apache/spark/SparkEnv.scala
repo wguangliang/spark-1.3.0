@@ -296,7 +296,7 @@ object SparkEnv extends Logging {
         logInfo("Registering " + name)
         actorSystem.actorOf(Props(newActor), name = name)
       } else {
-        // 如果是Executor，则通过调用AkkaUtils.makeDriverDef找到mapOutputTrackerMasterActor
+        // 如果是Executor，则通过调用AkkaUtils.makeDriverDef连接到 newActor （mapOutputTrackerMasterActor或者BlockManagerMasterActor）
         AkkaUtils.makeDriverRef(name, conf, actorSystem)
       }
     }
@@ -350,7 +350,7 @@ object SparkEnv extends Logging {
 
     // ToDo 7）创建BlockManagerMaster负责对Block的管理和协调。具体操作依赖于BlockManagerMasterActor。
     //    Driver和Executor处理BlockManagerMaster的方式不同：
-    //      如果当前应用程序是driver，则创建BlockManagerMasterActor，并且注册到ActorSystem中
+    //      如果当前应用程序是driver，则创建BlockManagerMasterActor（只在driver端创建），并且注册到ActorSystem中
     //      如果当前应用程序是Executor，则从ActorSystem中找到BlockManagerMasterActor
     val blockManagerMaster = new BlockManagerMaster(registerOrLookup(
       "BlockManagerMaster",

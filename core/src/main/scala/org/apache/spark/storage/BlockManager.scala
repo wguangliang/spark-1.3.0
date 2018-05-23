@@ -86,6 +86,7 @@ private[spark] class BlockManager(
     numUsableCores: Int)
   extends BlockDataManager with Logging {
 
+  // 创建DiskBlockManager
   val diskBlockManager = new DiskBlockManager(this, conf)
 
   // 缓存BlockId与BlockInfo的对应关系
@@ -93,8 +94,10 @@ private[spark] class BlockManager(
 
   // Actual storage of where blocks are kept
   private var tachyonInitialized = false
-  private[spark] val memoryStore = new MemoryStore(this, maxMemory)
-  private[spark] val diskStore = new DiskStore(this, diskBlockManager)
+
+  // 当MemoryStore没有足够空间时，就会使用DiskStore将块存入磁盘。DiskStore继承自BlockStore，并实现了getBytes、putBytes、putArray、putIterator等方法
+  private[spark] val memoryStore = new MemoryStore(this, maxMemory)  // 内存存储
+  private[spark] val diskStore = new DiskStore(this, diskBlockManager) // 磁盘存储
   private[spark] lazy val tachyonStore: TachyonStore = {
     val storeDir = conf.get("spark.tachyonStore.baseDir", "/tmp_spark_tachyon")
     val appFolderName = conf.get("spark.tachyonStore.folderName")
@@ -897,6 +900,7 @@ private[spark] class BlockManager(
   /**
    * Replicate block to another node. Not that this is a blocking call that returns after
    * the block has been replicated.
+   * 数据块备份 方法
    */
   private def replicate(blockId: BlockId, data: ByteBuffer, level: StorageLevel): Unit = {
     val maxReplicationFailures = conf.getInt("spark.storage.maxReplicationFailures", 1)
@@ -1010,13 +1014,20 @@ private[spark] class BlockManager(
    * store reaches its limit and needs to free up space.
    *
    * Return the block status if the given block has been updated, else None.
+   * 移出内存方法。当内存不足时，可能需要腾出部分内存空间
+   *  处理步骤如下:
+    *  1）从blockInfo:TimeStampedHashMap[BlockId, BlockInfo]中检查是否存在要迁移的blockId。如果存在，从BlockInfo中获取Block的StorageLevel
+    *  2）如果StorageLevel允许存入硬盘，并且DiskStore中不存在此文件，那么调用DiskStore的putArray或者putBytes，将此Block存入硬盘
+    *  3）从MemoryStore中清除此BlockId对应Block
+    *  4）使用getCurrentBlockStatus方法获取Block的最新状态。如果此Block的tellMaster属性为true，则调用reportBlockStatus方法给BlockManagerMasterActor报告状态
+    *  5）从blockInfo中清除此BlockId，并返回Block的状态
    */
   def dropFromMemory(
       blockId: BlockId,
       data: Either[Array[Any], ByteBuffer]): Option[BlockStatus] = {
 
     logInfo(s"Dropping block $blockId from memory")
-    val info = blockInfo.get(blockId).orNull
+    val info = blockInfo.get(blockId).orNull // 得到blockinfo
 
     // If the block has not already been dropped
     if (info != null) {
@@ -1058,6 +1069,7 @@ private[spark] class BlockManager(
 
         val status = getCurrentBlockStatus(blockId, info)
         if (info.tellMaster) {
+          // 状态报告方法
           reportBlockStatus(blockId, info, status, droppedMemorySize)
         }
         if (!level.useDisk) {

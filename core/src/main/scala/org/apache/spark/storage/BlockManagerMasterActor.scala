@@ -42,9 +42,11 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf, listenerBus
   extends Actor with ActorLogReceive with Logging {
 
   // Mapping from block manager id to the block manager's information.
+  // BlockManagerId及其BlockManager的信息
   private val blockManagerInfo = new mutable.HashMap[BlockManagerId, BlockManagerInfo]
 
   // Mapping from executor ID to block manager ID.
+  // ExecutorId与其拥有的BlockManagerId之间的映射关系
   private val blockManagerIdByExecutor = new mutable.HashMap[String, BlockManagerId]
 
   // Mapping from block id to the set of block managers that have the block.

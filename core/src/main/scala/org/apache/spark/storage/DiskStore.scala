@@ -38,6 +38,13 @@ private[spark] class DiskStore(blockManager: BlockManager, diskManager: DiskBloc
     diskManager.getFile(blockId.name).length
   }
 
+  /**
+    * NIO写入方法putBytes
+    * @param blockId
+    * @param _bytes
+    * @param level
+    * @return
+    */
   override def putBytes(blockId: BlockId, _bytes: ByteBuffer, level: StorageLevel): PutResult = {
     // So that we do not modify the input offsets !
     // duplicate does not copy buffer, so inexpensive
@@ -45,7 +52,7 @@ private[spark] class DiskStore(blockManager: BlockManager, diskManager: DiskBloc
     logDebug(s"Attempting to put block $blockId")
     val startTime = System.currentTimeMillis
     val file = diskManager.getFile(blockId)
-    val channel = new FileOutputStream(file).getChannel
+    val channel = new FileOutputStream(file).getChannel  // 使用NIO的Channel将ByteBuffer写入文件
     while (bytes.remaining > 0) {
       channel.write(bytes)
     }
@@ -72,11 +79,11 @@ private[spark] class DiskStore(blockManager: BlockManager, diskManager: DiskBloc
 
     logDebug(s"Attempting to write values for block $blockId")
     val startTime = System.currentTimeMillis
-    val file = diskManager.getFile(blockId)
+    val file = diskManager.getFile(blockId)  // 获取blockId对应的Block文件
     val outputStream = new FileOutputStream(file)
     try {
       try {
-        blockManager.dataSerializeStream(blockId, outputStream, values)
+        blockManager.dataSerializeStream(blockId, outputStream, values) // 将FileOutputStream序列化并压缩
       } finally {
         // Close outputStream here because it should be closed before file is deleted.
         outputStream.close()
@@ -95,6 +102,7 @@ private[spark] class DiskStore(blockManager: BlockManager, diskManager: DiskBloc
     logDebug("Block %s stored as %s file on disk in %d ms".format(
       file.getName, Utils.bytesToString(length), timeTaken))
 
+    // 如果需要返回写入的数据
     if (returnValues) {
       // Return a byte buffer for the contents of the file
       val buffer = getBytes(blockId).get
@@ -109,6 +117,7 @@ private[spark] class DiskStore(blockManager: BlockManager, diskManager: DiskBloc
 
     try {
       // For small files, directly read rather than memory map
+      // 对于小文件，直接读
       if (length < minMemoryMapBytes) {
         val buf = ByteBuffer.allocate(length.toInt)
         channel.position(offset)

@@ -112,6 +112,16 @@ class NettyBlockTransferService(conf: SparkConf, securityManager: SecurityManage
 
   override def port: Int = server.getPort
 
+  /**
+    * 上传shuffle文件到远程Executor
+    * @param hostname
+    * @param port
+    * @param execId
+    * @param blockId
+    * @param blockData
+    * @param level
+    * @return
+    */
   override def uploadBlock(
       hostname: String,
       port: Int,
@@ -120,14 +130,17 @@ class NettyBlockTransferService(conf: SparkConf, securityManager: SecurityManage
       blockData: ManagedBuffer,
       level: StorageLevel): Future[Unit] = {
     val result = Promise[Unit]()
+    // 创建netty服务的客户端，客户端连接的hostname和port正是我们随机选择的BlockManager的hostname和port
     val client = clientFactory.createClient(hostname, port)
 
     // StorageLevel is serialized as bytes using our JavaSerializer. Everything else is encoded
     // using our binary protocol.
+    // 将Block的存储级别StorageLevel序列化
     val levelBytes = serializer.newInstance().serialize(level).array()
 
     // Convert or copy nio buffer into array in order to serialize it.
     val nioBuffer = blockData.nioByteBuffer()
+    // 将Block的ByteBuffer转化为数组，便于序列化
     val array = if (nioBuffer.hasArray) {
       nioBuffer.array()
     } else {
@@ -136,6 +149,8 @@ class NettyBlockTransferService(conf: SparkConf, securityManager: SecurityManage
       data
     }
 
+    // 将appId、execId、blockId、序列化的StorageLevel、转化为数组的Block封装为UploadBlock，并将UploadBlock序列化为字节数组
+    // 最终调用Netty客户端的sendRpc方法将字节数组上传，回调函数RPCResponseCallback根据RPC的结果更改上传状态。
     client.sendRpc(new UploadBlock(appId, execId, blockId.toString, levelBytes, array).toByteArray,
       new RpcResponseCallback {
         override def onSuccess(response: Array[Byte]): Unit = {
