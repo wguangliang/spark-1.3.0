@@ -79,22 +79,26 @@ trait Catalog {
 class SimpleCatalog(val caseSensitive: Boolean) extends Catalog {
   val tables = new mutable.HashMap[String, LogicalPlan]()
 
+  // 注册表
   override def registerTable(
       tableIdentifier: Seq[String],
       plan: LogicalPlan): Unit = {
     val tableIdent = processTableIdentifier(tableIdentifier)
-    tables += ((getDbTableName(tableIdent), plan))
+    tables += ((getDbTableName(tableIdent), plan)) // 将表名和LogicalPlan一起放入缓冲tables
   }
 
+  // 取消注册表
   override def unregisterTable(tableIdentifier: Seq[String]) = {
     val tableIdent = processTableIdentifier(tableIdentifier)
     tables -= getDbTableName(tableIdent)
   }
 
+  // 清除所有已经注册的表
   override def unregisterAllTables() = {
     tables.clear()
   }
 
+  // 判断表是否存在
   override def tableExists(tableIdentifier: Seq[String]): Boolean = {
     val tableIdent = processTableIdentifier(tableIdentifier)
     tables.get(getDbTableName(tableIdent)) match {
@@ -103,6 +107,7 @@ class SimpleCatalog(val caseSensitive: Boolean) extends Catalog {
     }
   }
 
+  // 使用表名查找关系
   override def lookupRelation(
       tableIdentifier: Seq[String],
       alias: Option[String] = None): LogicalPlan = {

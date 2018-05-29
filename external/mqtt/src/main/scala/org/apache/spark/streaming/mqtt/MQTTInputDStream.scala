@@ -76,12 +76,14 @@ class MQTTReceiver(
   def onStart() {
 
     // Set up persistence for messages
+    // 负责对消息的持久化，保证重启后不会丢失
     val persistence = new MemoryPersistence()
 
     // Initializing Mqtt Client specifying brokerUrl, clientID and MqttClientPersistance
     val client = new MqttClient(brokerUrl, MqttClient.generateClientId(), persistence)
 
     // Callback automatically triggers as and when new message arrives on specified topic
+    // 当消息到达时自动将消息存储到Spark内存中
     val callback: MqttCallback = new MqttCallback() {
 
       // Handles Mqtt message
@@ -102,9 +104,11 @@ class MQTTReceiver(
     client.setCallback(callback)
 
     // Connect to MqttBroker
+    // 连接MQTT服务器
     client.connect()
 
     // Subscribe to Mqtt topic
+    // 订阅消息主题
     client.subscribe(topic)
 
   }

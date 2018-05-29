@@ -181,6 +181,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] {
    * Returns a copy of this node where `rule` has been recursively applied to it and all of its
    * children (pre-order). When `rule` does not apply to a given node it is left unchanged.
    * @param rule the function used to transform this nodes children
+   * 将Rule应用到给定的树段，并用结果替代旧的树段
    */
   def transformDown(rule: PartialFunction[BaseType, BaseType]): BaseType = {
     val afterRule = CurrentOrigin.withOrigin(origin) {
@@ -401,6 +402,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] {
 
 /**
  * A [[TreeNode]] that has two children, [[left]] and [[right]].
+ * 即有左右两个子节点的节点。如Except、Insersect操作
  */
 trait BinaryNode[BaseType <: TreeNode[BaseType]] {
   def left: BaseType
@@ -411,6 +413,7 @@ trait BinaryNode[BaseType <: TreeNode[BaseType]] {
 
 /**
  * A [[TreeNode]] with no children.
+ * 叶子节点，即没有子节点的节点。如SetCommand、 DescribeCommand、 ExplainCommand
  */
 trait LeafNode[BaseType <: TreeNode[BaseType]] {
   def children = Nil
@@ -418,6 +421,7 @@ trait LeafNode[BaseType <: TreeNode[BaseType]] {
 
 /**
  * A [[TreeNode]] with a single [[child]].
+ * 一元节点，即只有一个子节点的节点。如Project、 Sort、 Limit、 Filter等操作
  */
 trait UnaryNode[BaseType <: TreeNode[BaseType]] {
   def child: BaseType

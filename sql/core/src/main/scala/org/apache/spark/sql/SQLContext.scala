@@ -103,12 +103,15 @@ class SQLContext(@transient val sparkContext: SparkContext)
    */
   def getAllConfs: immutable.Map[String, String] = conf.getAllConfs
 
+  // 字典表，用于注册表，对表缓存后便于查询
   @transient
-  protected[sql] lazy val catalog: Catalog = new SimpleCatalog(true)
+  protected[sql] lazy val catalog: Catalog = new SimpleCatalog(true)  // true字母敏感
 
+  //
   @transient
   protected[sql] lazy val functionRegistry: FunctionRegistry = new SimpleFunctionRegistry(true)
 
+  // 对还未分析的逻辑执行计划（LogicalPlan）进行分析
   @transient
   protected[sql] lazy val analyzer: Analyzer =
     new Analyzer(catalog, functionRegistry, caseSensitive = true) {
@@ -118,12 +121,15 @@ class SQLContext(@transient val sparkContext: SparkContext)
         Nil
     }
 
+  // 对已经分析过的逻辑执行计划（LogicalPlan）进行优化
   @transient
   protected[sql] lazy val optimizer: Optimizer = DefaultOptimizer
 
+  // 用于解析DDL语句，如创建表
   @transient
   protected[sql] val ddlParser = new DDLParser(sqlParser.apply(_))
 
+  // 用于解析select查询语句
   @transient
   protected[sql] val sqlParser = {
     val fallback = new catalyst.SqlParser
