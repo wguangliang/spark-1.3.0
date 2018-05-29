@@ -77,6 +77,7 @@ class ShuffledRDD[K, V, C](
   }
 
   override def getDependencies: Seq[Dependency[_]] = {
+    // 直接返回shuffleDependency
     List(new ShuffleDependency(prev, part, serializer, keyOrdering, aggregator, mapSideCombine))
   }
 

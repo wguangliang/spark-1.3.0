@@ -61,7 +61,7 @@ private[spark] abstract class Task[T](val stageId: Int, var partitionId: Int) ex
       kill(interruptThread = false)
     }
     try {
-      //真正执行Task，找相应实现类的实现  ShuffleMapTask或者ResultTask
+      // 真正执行Task，找相应实现类的实现  ShuffleMapTask或者ResultTask
       runTask(context)
     } finally {
       context.markTaskCompleted()

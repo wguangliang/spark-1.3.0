@@ -311,50 +311,50 @@ private[spark] class Master(
           sender ! DriverStatusResponse(found = false, None, None, None, None)
       }
     }
-    //client发送的注册应用程序信息（在AppClient.scala的第83行）
-    //master处理Application注册的请求
+    // client发送的注册应用程序信息（在AppClient.scala的第83行）
+    // master处理Application注册的请求
     case RegisterApplication(description) => {
       if (state == RecoveryState.STANDBY) {
         // ignore, don't send response
       } else {
         logInfo("Registering app " + description.name)
-        val app = createApplication(description, sender) //将应用程序信息和发送方（client）的地址封装
-        registerApplication(app) //注册这个application
+        val app = createApplication(description, sender) // 将应用程序信息和发送方（client）的地址封装
+        registerApplication(app) // 注册这个application
         logInfo("Registered app " + description.name + " with ID " + app.id)
-        persistenceEngine.addApplication(app) //持久化到磁盘，避免这个master宕机，用于恢复
-        sender ! RegisteredApplication(app.id, masterUrl) //向client发送注册成功信息//反向，向SparkDeploySchedulerBackend的AppClient中的client actor发送RegisteredApplication
-        schedule()  //进行资源调度
+        persistenceEngine.addApplication(app) // 持久化到磁盘，避免这个master宕机，用于恢复
+        sender ! RegisteredApplication(app.id, masterUrl) // 向client发送注册成功信息//反向，向SparkDeploySchedulerBackend的AppClient中的client actor发送RegisteredApplication
+        schedule()  // 进行资源调度
       }
     }
-    //master接收到client发送过来的 已知Executor状态改变的消息的回复
-    //master接收到worker发送过来的 已知Executor状态改变的消息的回复
+    // master接收到client发送过来的 已知Executor状态改变的消息的回复
+    // master接收到worker发送过来的 已知Executor状态改变的消息的回复
     case ExecutorStateChanged(appId, execId, state, message, exitStatus) => {
-      //找到executor对应的app，然后返过来通过app内部的executors缓存获取executor信息
+      // 找到executor对应的app，然后返过来通过app内部的executors缓存获取executor信息
       val execOption = idToApp.get(appId).flatMap(app => app.executors.get(execId))
       execOption match {
         case Some(exec) => {
           val appInfo = idToApp(appId)
-          exec.state = state //设置状态
+          exec.state = state // 设置状态
           if (state == ExecutorState.RUNNING) { appInfo.resetRetryCount() }
-          //向driver同步发布ExecutorUpdated消息
+          // 向driver同步发布ExecutorUpdated消息
           exec.application.driver ! ExecutorUpdated(execId, state, message, exitStatus)
-          //如果executor状态是完成了
+          // 如果executor状态是完成了
           if (ExecutorState.isFinished(state)) {
             // Remove this executor from the worker and app
             logInfo(s"Removing executor ${exec.fullId} because it is $state")
-            //从 appInfo的缓存中移除executor
+            // 从 appInfo的缓存中移除executor
             appInfo.removeExecutor(exec)
-            //从运行executor的worker缓存中移除executor
+            // 从运行executor的worker缓存中移除executor
             exec.worker.removeExecutor(exec)
 
-            val normalExit = exitStatus == Some(0) //如果退出状态为0，则认为是正常退出
+            val normalExit = exitStatus == Some(0) // 如果退出状态为0，则认为是正常退出
             // Only retry certain number of times so we don't go into an infinite loop.
-            //如果不是Executor不是正常退出，则进行有限次数的尝试
+            // 如果不是Executor不是正常退出，则进行有限次数的尝试
             if (!normalExit) {
               if (appInfo.incrementRetryCount() < ApplicationState.MAX_NUM_RETRY) {  //10
-                schedule() //重新进行调度
+                schedule() // 重新进行调度
               } else {
-                //否则如果反复调度都是失败的，达到了最大的重试次数，
+                // 否则如果反复调度都是失败的，达到了最大的重试次数，
                 // 那么就认为application是失败了，进行removeApplication
                 val execs = appInfo.executors.values
                 if (!execs.exists(_.state == ExecutorState.RUNNING)) {
@@ -369,15 +369,15 @@ private[spark] class Master(
         case None =>
           logWarning(s"Got status update for unknown executor $appId/$execId")
       }
-    } //case ExecutorStateChanged
+    } // case ExecutorStateChanged
 
     case DriverStateChanged(driverId, state, exception) => {
       state match {
-        //如果driver的状态是错误、完成、被杀掉、失败
-        //那么就移除driver
+        // 如果driver的状态是错误、完成、被杀掉、失败
+        // 那么就移除driver
         case DriverState.ERROR | DriverState.FINISHED | DriverState.KILLED | DriverState.FAILED =>
           removeDriver(driverId, state, exception)
-        //否则没有需要更新driver的状态
+        // 否则没有需要更新driver的状态
         case _ =>
           throw new Exception(s"Received unexpected state update for driver $driverId: $state")
       }
@@ -439,11 +439,14 @@ private[spark] class Master(
       if (canCompleteRecovery) { completeRecovery() }
     }
 
+    // Akka的通信机制保证当互相通信的任意一方异常退出，另一方都会收到DisassociatedEvent。
+    // 如果Client断开连接 那么Master就会收到这个消息
     case DisassociatedEvent(_, address, _) => {
       // The disconnected client could've been either a worker or an app; remove whichever it was
       logInfo(s"$address got disassociated, removing it.")
       addressToWorker.get(address).foreach(removeWorker)
       addressToApp.get(address).foreach(finishApplication)
+      // 如果是恢复状态，进行恢复
       if (state == RecoveryState.RECOVERING && canCompleteRecovery) { completeRecovery() }
     }
 
@@ -454,7 +457,7 @@ private[spark] class Master(
         drivers.toArray, completedDrivers.toArray, state)
     }
 
-    case CheckForWorkerTimeOut => {  //接收到自己给自己发送的case object定时信息，用来检测超时Worker节点
+    case CheckForWorkerTimeOut => {  // 接收到自己给自己发送的case object定时信息，用来检测超时Worker节点
       timeOutDeadWorkers()
     }
 
@@ -503,22 +506,22 @@ private[spark] class Master(
    * */
   def completeRecovery() {
     // Ensure "only-once" recovery semantics using a short synchronization period.
-    //确定是否状态已经修改完成
+    // 确定是否状态已经修改完成
     synchronized {
       if (state != RecoveryState.RECOVERING) { return }
       state = RecoveryState.COMPLETING_RECOVERY
     }
 
     // Kill off any workers and apps that didn't respond to us.
-    //主备切换之前，会将所有的Application和Worker的状态改为UNKNOWN，响应新master的Application和Worker状态就改为不是UNKNOWN
-    //所以这里Worker要过滤出来状态是UNKNOWN的，Application要过滤出来状态是UNKNOWN的
-    //然后分别调用removeWorker方法和finishApplication方法，对可能已经出故障或者已经死掉的Worker和Application进行清理
-    //清理的机制：三点：1）从内存缓存结构中移除2）从相关的组件的内存缓存中移除3）从持久化存储中移除
+    // 主备切换之前，会将所有的Application和Worker的状态改为UNKNOWN，响应新master的Application和Worker状态就改为不是UNKNOWN
+    // 所以这里Worker要过滤出来状态是UNKNOWN的，Application要过滤出来状态是UNKNOWN的
+    // 然后分别调用removeWorker方法和finishApplication方法，对可能已经出故障或者已经死掉的Worker和Application进行清理
+    // 清理的机制：三点：1）从内存缓存结构中移除2）从相关的组件的内存缓存中移除3）从持久化存储中移除
     workers.filter(_.state == WorkerState.UNKNOWN).foreach(removeWorker)
     apps.filter(_.state == ApplicationState.UNKNOWN).foreach(finishApplication)
 
     // Reschedule drivers which were not claimed by any workers
-    //如果driver的连接的worker是空的，进行重新发布连接
+    // 如果driver的连接的worker是空的，进行重新发布连接
     drivers.filter(_.worker.isEmpty).foreach { d =>
       logWarning(s"Driver ${d.id} was not found after master recovery")
       if (d.desc.supervise) {
@@ -540,9 +543,9 @@ private[spark] class Master(
    * launched an executor for the app on it (right now the standalone backend doesn't like having
    * two executors on the same worker).
    */
-  //对于一台worker节点，对于同一个app只能启一个worker
+  // 对于一台worker节点，对于同一个app只能启一个worker
   def canUse(app: ApplicationInfo, worker: WorkerInfo): Boolean = {
-    //workder当前剩余的内存>appp在每个worker其要求的内存 且这个worker没有启动这个app的executor
+    // workder当前剩余的内存>appp在每个worker其要求的内存 且这个worker没有启动这个app的executor
     worker.memoryFree >= app.desc.memoryPerSlave && !worker.hasExecutor(app)
   }
 
@@ -551,20 +554,20 @@ private[spark] class Master(
    * every time a new app joins or resource availability changes.
    */
   private def schedule() {
-    //Master状态不是ALIVE，直接返回
-    //也就是说，standby master是不会进行application等资源调度的
+    // Master状态不是ALIVE，直接返回
+    // 也就是说，standby master是不会进行application等资源调度的
     if (state != RecoveryState.ALIVE) { return }
 
     // First schedule drivers, they take strict precedence over applications
     // Randomization helps balance drivers
-    //Random.shuffle是对传入的元素进行随机打乱
-    //取出了workers中的所有之前注册过的worker信息，并过滤，必须是状态ALIVE的worker
+    // Random.shuffle是对传入的元素进行随机打乱
+    // 取出了workers中的所有之前注册过的worker信息，并过滤，必须是状态ALIVE的worker
     // 对状态为ALIVE的worker，调用Random的shuffle方法进行随机打乱
     val shuffledAliveWorkers = Random.shuffle(workers.toSeq.filter(_.state == WorkerState.ALIVE))
     val numWorkersAlive = shuffledAliveWorkers.size
     var curPos = 0
-    //首先调度driver，在用yarn-cluster提交的时候，才会注册driver
-    //因为standalone和yarn-client模式，都会在本地直接启动driver，而不会来注册driver，就不会让master来调度driver了
+    // 首先调度driver，在用yarn-cluster提交的时候，才会注册driver
+    // 因为standalone和yarn-client模式，都会在本地直接启动driver，而不会来注册driver，就不会让master来调度driver了
 
     //driver的调度机制
     //遍历waitingDrivers ArrayBuffer
@@ -574,15 +577,15 @@ private[spark] class Master(
       // explored all alive workers.
       var launched = false
       var numWorkersVisited = 0
-      //只要有活着的worker没有遍历到，而且当前driver还没有启动，那么就继续遍历
+      //  只要有活着的worker没有遍历到，而且当前driver还没有启动，那么就继续遍历
       while (numWorkersVisited < numWorkersAlive && !launched) {
         val worker = shuffledAliveWorkers(curPos) //拿到一个worker
         numWorkersVisited += 1 //遍历过的worker个数加1
-        //如果该worker的空闲内存和核数都大于等于driver需要的内存和核数
+        // 如果该worker的空闲内存和核数都大于等于driver需要的内存和核数
         if (worker.memoryFree >= driver.desc.mem && worker.coresFree >= driver.desc.cores) {
-          //启动在该worker中启动driver
+          // 启动在该worker中启动driver
           launchDriver(worker, driver) //
-          //并且等待调度driver的序列中移除该driver
+          // 并且等待调度driver的序列中移除该driver
           waitingDrivers -= driver
           launched = true
         }
@@ -592,82 +595,82 @@ private[spark] class Master(
 
     // Right now this is a very simple FIFO scheduler. We keep trying to fit in the first app
     // in the queue, then the second app, etc.
-    //Application的 调度机制（核心）
-    //Application的调度算法有两种，一种是spreadOutApps，另一种是非spreadOutApps
-    //两种方法（尽量打散和尽量集中）
+    // Application的 调度机制（核心）
+    // Application的调度算法有两种，一种是spreadOutApps，另一种是非spreadOutApps
+    // 两种方法（尽量打散和尽量集中）
     if (spreadOutApps) { //尽量打散Application
       // Try to spread out each app among all the nodes, until it has all its cores
-      //尝试将每个app发布到尽可能多的节点，直到满足核的需要
-      //遍历waitingApps并且该app的剩余需要核数>0
+      // 尝试将每个app发布到尽可能多的节点，直到满足核的需要
+      // 遍历waitingApps并且该app的剩余需要核数>0
       for (app <- waitingApps if app.coresLeft > 0) { //遍历等待app队列
-        val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)//遍历worker的信息，查找ALIVE的worker
-          .filter(canUse(app, _)).sortBy(_.coresFree).reverse //按能够使用（内存和对于一台worker节点，对于同一个app只能启一个worker）的每个节点的剩余核数从高到低排序
-        val numUsable = usableWorkers.length   //可使用worker数量
-        //创建一个空数组，存储了要分配给每个worker的cpu数量
+        val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)// 遍历worker的信息，查找ALIVE的worker
+          .filter(canUse(app, _)).sortBy(_.coresFree).reverse // 按能够使用（内存和对于一台worker节点，对于同一个app只能启一个worker）的每个节点的剩余核数从高到低排序
+        val numUsable = usableWorkers.length   // 可使用worker数量
+        // 创建一个空数组，存储了要分配给每个worker的cpu数量
         val assigned = new Array[Int](numUsable) // Number of cores to give on each node
         var toAssign = math.min(app.coresLeft, usableWorkers.map(_.coresFree).sum) //需要分配和worker总核数取最小
         var pos = 0
-        while (toAssign > 0) { //跳出while循环，要么该Application满足了核数需求，要么可用核数用完了
-          if (usableWorkers(pos).coresFree - assigned(pos) > 0) { //如果当前机器剩余核数>需要分配的核数
-            toAssign -= 1  //toAssign -1，先每个机器分配1个核
-            assigned(pos) += 1 //记录节点对应位置的已分配核数+1
+        while (toAssign > 0) { // 跳出while循环，要么该Application满足了核数需求，要么可用核数用完了
+          if (usableWorkers(pos).coresFree - assigned(pos) > 0) { // 如果当前机器剩余核数>需要分配的核数
+            toAssign -= 1  // toAssign -1，先每个机器分配1个核
+            assigned(pos) += 1 // 记录节点对应位置的已分配核数+1
           }
-          pos = (pos + 1) % numUsable //如果遍历一遍了，再次遍历一遍
+          pos = (pos + 1) % numUsable // 如果遍历一遍了，再次遍历一遍
         }
         // Now that we've decided how many cores to give on each node, let's actually give them
-        //给每个worker分配完Application要求的cpu core之后
-        //遍历worker
+        // 给每个worker分配完Application要求的cpu core之后
+        // 遍历worker
         for (pos <- 0 until numUsable) {
-          if (assigned(pos) > 0) {  //如果对应机器位置启动的核数>0,则需要启动executor
-            //在Application内部缓存结构中 ，添加executor
-            //并且创建ExecutorDesc对象，其中封装了，给这个Executor分配多少个cpu core
-            //这是spark 1.3.0版本的Executor启动的内部机制
-            //在spark-submit脚本中，可以指定要多少个executor，每个executor多少个cpu，多少个内存
-            //那么基于这个机制，实际上最后，executor的实际数量，以及每个executor的cpu，可能与配置是不一样的
-            //因为，这里是基于总的cpu来分配的var toAssign = math.min(app.coresLeft, usableWorkers.map(_.coresFree).sum)
-            //比如要求3个executor，每个要3个cpu，有个9个worker，每个有1个cpu，
+          if (assigned(pos) > 0) {  // 如果对应机器位置启动的核数>0,则需要启动executor
+            // 在Application内部缓存结构中 ，添加executor
+            // 并且创建ExecutorDesc对象，其中封装了，给这个Executor分配多少个cpu core
+            // 这是spark 1.3.0版本的Executor启动的内部机制
+            // 在spark-submit脚本中，可以指定要多少个executor，每个executor多少个cpu，多少个内存
+            // 那么基于这个机制，实际上最后，executor的实际数量，以及每个executor的cpu，可能与配置是不一样的
+            // 因为，这里是基于总的cpu来分配的var toAssign = math.min(app.coresLeft, usableWorkers.map(_.coresFree).sum)
+            // 比如要求3个executor，每个要3个cpu，有个9个worker，每个有1个cpu，
             // 那么其实要分配9个core，会给每个worker分配一个core，然后给每个worker启动一个executor，
             // 最后会启动9个executor，每个executor占有1一个cpu core
             val exec = app.addExecutor(usableWorkers(pos), assigned(pos))
             launchExecutor(usableWorkers(pos), exec)
-            //将Application状态设置为RUNNING
+            // 将Application状态设置为RUNNING
             app.state = ApplicationState.RUNNING
           }
         }
       }
     } else {  //尽量集中Application
       // Pack each app into as few nodes as possible until we've assigned all its cores
-      //这里workers的顺序没有特殊排序处理
-      //每个application都尽可能分配到尽量少的worker上去，比如总共有10个worker，每个有10个core
-      //那么每个worker都沾满10个core
-      //比如，spark-submit中，配置的是要10个executor，每个要2个core，那么总共是20个core
-      //但是在这种算法下，其实总共只会启动2个executor，每个有10个core
+      // 这里workers的顺序没有特殊排序处理
+      // 每个application都尽可能分配到尽量少的worker上去，比如总共有10个worker，每个有10个core
+      // 那么每个worker都沾满10个core
+      // 比如，spark-submit中，配置的是要10个executor，每个要2个core，那么总共是20个core
+      // 但是在这种算法下，其实总共只会启动2个executor，每个有10个core
 
-      //首先遍历worker，并且状态是ALIVE，还有空闲cpu的worker
+      // 首先遍历worker，并且状态是ALIVE，还有空闲cpu的worker
       for (worker <- workers if worker.coresFree > 0 && worker.state == WorkerState.ALIVE) {
-        //遍历Application，并且是还有需要分配的core的application
-        for (app <- waitingApps if app.coresLeft > 0) { //coresLeft是一个方法！！！
-          //判断该worker可以被application使用
+        // 遍历Application，并且是还有需要分配的core的application
+        for (app <- waitingApps if app.coresLeft > 0) { // coresLeft是一个方法！！！
+          // 判断该worker可以被application使用
           if (canUse(app, worker)) {
-            val coresToUse = math.min(worker.coresFree, app.coresLeft) //这个worker剩余核数和app需要核数取最小
-            if (coresToUse > 0) { //当前主机能有核的分配，就分配
+            val coresToUse = math.min(worker.coresFree, app.coresLeft) // 这个worker剩余核数和app需要核数取最小
+            if (coresToUse > 0) { // 当前主机能有核的分配，就分配
               val exec = app.addExecutor(worker, coresToUse)
-              launchExecutor(worker, exec)   //这个worker启动一个executor
-              //将该application的状态修改为RUNNING
+              launchExecutor(worker, exec)   // 这个worker启动一个executor
+              // 将该application的状态修改为RUNNING
               app.state = ApplicationState.RUNNING
             }
           }
         }
       }
-    } //else
+    } // else
   }
 
   def launchExecutor(worker: WorkerInfo, exec: ExecutorDesc) {
     logInfo("Launching executor " + exec.fullId + " on worker " + worker.id)
-    worker.addExecutor(exec) //记录该worker使用的资源，进行计算资源的改变
-    worker.actor ! LaunchExecutor(masterUrl,   //master向worker发送启动Executor消息，消息是一个case class
+    worker.addExecutor(exec) // 记录该worker使用的资源，进行计算资源的改变
+    worker.actor ! LaunchExecutor(masterUrl,   // master向worker发送启动Executor消息，消息是一个case class
       exec.application.id, exec.id, exec.application.desc, exec.cores, exec.memory)
-    //maser向client actor发送消息，告诉他Executor已经启动
+    // maser向client actor发送消息，告诉他Executor已经启动
     exec.application.driver ! ExecutorAdded(
       exec.id, worker.id, worker.hostPort, exec.cores, exec.memory)
   }
@@ -706,25 +709,25 @@ private[spark] class Master(
    */
   def removeWorker(worker: WorkerInfo) {
     logInfo("Removing worker " + worker.id + " on " + worker.host + ":" + worker.port)
-    worker.setState(WorkerState.DEAD) //将Worker的状态设置为DEAD
+    worker.setState(WorkerState.DEAD) // 将Worker的状态设置为DEAD
     idToWorker -= worker.id
     addressToWorker -= worker.actor.path.address
-    for (exec <- worker.executors.values) { //遍历这些worker上的Executor
+    for (exec <- worker.executors.values) { // 遍历这些worker上的Executor
       logInfo("Telling app of lost executor: " + exec.id)
       exec.application.driver ! ExecutorUpdated(
         exec.id, ExecutorState.LOST, Some("worker lost"), None)
-      exec.application.removeExecutor(exec) //删除Executor
+      exec.application.removeExecutor(exec) // 删除Executor
     }
-    for (driver <- worker.drivers.values) {  //对于worker连接的driver
-      if (driver.desc.supervise) { //如果配置了driver.desc.supervise这个属性为true，会尝试重连
+    for (driver <- worker.drivers.values) {  // 对于worker连接的driver
+      if (driver.desc.supervise) { // 如果配置了driver.desc.supervise这个属性为true，会尝试重连
         logInfo(s"Re-launching ${driver.id}")
         relaunchDriver(driver)
-      } else { //如果没有配置这个属性，则将driver也删除掉
+      } else { // 如果没有配置这个属性，则将driver也删除掉
         logInfo(s"Not re-launching ${driver.id} because it was not supervised")
         removeDriver(driver.id, DriverState.ERROR, None)
       }
     }
-    persistenceEngine.removeWorker(worker)  //将该worker从持久化引擎中删除掉
+    persistenceEngine.removeWorker(worker)  // 将该worker从持久化引擎中删除掉
   }
 
   def relaunchDriver(driver: DriverInfo) {
@@ -793,7 +796,7 @@ private[spark] class Master(
       if (state != ApplicationState.FINISHED) {
         app.driver ! ApplicationRemoved(state.toString)
       }
-      persistenceEngine.removeApplication(app) //从持久化引擎中删除app
+      persistenceEngine.removeApplication(app) // 从持久化引擎中删除app
       schedule()
 
       // Tell all workers that the application has finished, so they can clean up any app state.
@@ -875,7 +878,7 @@ private[spark] class Master(
   }
 
   /** Check for, and remove, any timed-out workers */
-  //用来检测超时Worker节点的方法
+  // 用来检测超时Worker节点的方法
   def timeOutDeadWorkers() {
     // Copy the workers into an array so we don't modify the hashset while iterating through it
     val currentTime = System.currentTimeMillis()
@@ -912,37 +915,37 @@ private[spark] class Master(
    */
   def launchDriver(worker: WorkerInfo, driver: DriverInfo) {
     logInfo("Launching driver " + driver.id + " on worker " + worker.id)
-    //将driver加入worker内存的缓存结构
-    worker.addDriver(driver) //将该worker的使用内存和核数都分别加上该driver使用的内存和核数
-    //将worker也加入到driver的内存缓存结构中
+    // 将driver加入worker内存的缓存结构
+    worker.addDriver(driver) // 将该worker的使用内存和核数都分别加上该driver使用的内存和核数
+    // 将worker也加入到driver的内存缓存结构中
     driver.worker = Some(worker)
-    //然后调用worker的actor，给他发送LaunchDriver消息，让worker来启动Driver
+    // 然后调用worker的actor，给他发送LaunchDriver消息，让worker来启动Driver
     worker.actor ! LaunchDriver(driver.id, driver.desc)
-    //将driver的状态设置为RUNNING
+    // 将driver的状态设置为RUNNING
     driver.state = DriverState.RUNNING
   }
 
   def removeDriver(driverId: String, finalState: DriverState, exception: Option[Exception]) {
-    //用 scala HashSet的find()高阶函数，找到dirverId对应的driver
+    // 用 scala HashSet的find()高阶函数，找到dirverId对应的driver
     drivers.find(d => d.id == driverId) match {
-        //如果找到了，Some，样例类（Option）
+        // 如果找到了，Some，样例类（Option）
       case Some(driver) =>
         logInfo(s"Removing driver: $driverId")
-       //将driver从内存缓存中清除
+       // 将driver从内存缓存中清除
         drivers -= driver
         if (completedDrivers.size >= RETAINED_DRIVERS) {
           val toRemove = math.max(RETAINED_DRIVERS / 10, 1)
           completedDrivers.trimStart(toRemove)
         }
-        //向completedDrivers中加入driver
+        // 向completedDrivers中加入driver
         completedDrivers += driver
-        //使用持久化引擎去除driver的持久化信息
+        // 使用持久化引擎去除driver的持久化信息
         persistenceEngine.removeDriver(driver)
         driver.state = finalState
         driver.exception = exception
-        //将driver申请的worker，移除driver
+        // 将driver申请的worker，移除driver
         driver.worker.foreach(w => w.removeDriver(driver))
-        //同样，调用schedule方法
+        // 同样，调用schedule方法
         schedule()
       case None =>
         logWarning(s"Asked to remove unknown driver: $driverId")
@@ -951,16 +954,16 @@ private[spark] class Master(
 }
 
 private[spark] object Master extends Logging {
-  val systemName = "sparkMaster"  //定义ActorSystem名字
-  private val actorName = "Master" //定义Actor名字
+  val systemName = "sparkMaster"  // 定义ActorSystem名字
+  private val actorName = "Master" // 定义Actor名字
 
   def main(argStrings: Array[String]) {
     SignalLogger.register(log)
     val conf = new SparkConf
     val args = new MasterArguments(argStrings, conf)
-    //创建Actor和ActorSystem
+    // 创建Actor和ActorSystem
     val (actorSystem, _, _, _) = startSystemAndActor(args.host, args.port, args.webUiPort, conf)
-    actorSystem.awaitTermination()    //启动
+    actorSystem.awaitTermination()    // 启动
   }
 
   /**
@@ -997,8 +1000,8 @@ private[spark] object Master extends Logging {
       conf: SparkConf): (ActorSystem, Int, Int, Option[Int]) = {
     val securityMgr = new SecurityManager(conf)
     val (actorSystem, boundPort) = AkkaUtils.createActorSystem(systemName, host, port, conf = conf,
-      securityManager = securityMgr)   ///创建ActorSystem
-    //创建master的Actor
+      securityManager = securityMgr)   // 创建ActorSystem
+    // 创建master的Actor
     val actor = actorSystem.actorOf(
       Props(classOf[Master], host, boundPort, webUiPort, securityMgr, conf), actorName)
     val timeout = AkkaUtils.askTimeout(conf)

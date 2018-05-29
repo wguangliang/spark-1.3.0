@@ -67,6 +67,7 @@ private[spark] class Stage(
 
   /** For stages that are the final (consists of only ResultTasks), link to the ActiveJob. */
   var resultOfJob: Option[ActiveJob] = None
+  // 存储有待处理的task
   var pendingTasks = new HashSet[Task[_]]
 
   private var nextAttemptId = 0

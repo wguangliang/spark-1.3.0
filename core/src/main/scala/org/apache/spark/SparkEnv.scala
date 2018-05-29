@@ -335,7 +335,7 @@ object SparkEnv extends Logging {
     //  也能通过MapOutputTrackerMaster中维护的mapStatuses从本地或者其他远程节点读取文件
     val shuffleManager = instantiateClass[ShuffleManager](shuffleMgrClass)
 
-    // ToDo 5）创建shufflememorymanger，负责管理shuffle线程占用内存的分配和释放，并通过threadMemory:mutable.HashMap[Long, Long]缓存每个线程的内存字节数
+    // ToDo 5）创建shufflememorymanger，负责管理shuffle操作线程占用内存的分配和释放，并通过threadMemory:mutable.HashMap[Long, Long]缓存每个线程的内存字节数
     val shuffleMemoryManager = new ShuffleMemoryManager(conf)
 
     // ToDo 6）块传输服务BlockTransferService

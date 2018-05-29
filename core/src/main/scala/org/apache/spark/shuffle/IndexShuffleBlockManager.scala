@@ -52,6 +52,7 @@ class IndexShuffleBlockManager(conf: SparkConf) extends ShuffleBlockManager {
     ShuffleBlockId(shuffleId, mapId, 0)
   }
 
+  // 实际上调用diskBlockManager的getFile方法
   def getDataFile(shuffleId: Int, mapId: Int): File = {
     blockManager.diskBlockManager.getFile(ShuffleDataBlockId(shuffleId, mapId, 0))
   }
@@ -79,6 +80,7 @@ class IndexShuffleBlockManager(conf: SparkConf) extends ShuffleBlockManager {
    * Write an index file with the offsets of each block, plus a final offset at the end for the
    * end of the output file. This will be used by getBlockLocation to figure out where each block
    * begins and ends.
+   * 用于在Block索引文件中记录各个partition的偏移量，便于下游stage的任务读取
    * */
   def writeIndexFile(shuffleId: Int, mapId: Int, lengths: Array[Long]) = {
     val indexFile = getIndexFile(shuffleId, mapId)
@@ -101,6 +103,12 @@ class IndexShuffleBlockManager(conf: SparkConf) extends ShuffleBlockManager {
     Some(getBlockData(blockId).nioByteBuffer())
   }
 
+  /**
+    * 根据shuffleId和mapId(即partitionId)读取索引文件，从索引文件中获得partition计算中间结果写入文件的偏移量和中间结果的大小
+    * 根据此偏移量和大小读取文件中的partition的中间计算结果。
+    * @param blockId
+    * @return
+    */
   override def getBlockData(blockId: ShuffleBlockId): ManagedBuffer = {
     // The block is actually going to be a range of a single map output file for this map, so
     // find out the consolidated file, then the offset within that from our index

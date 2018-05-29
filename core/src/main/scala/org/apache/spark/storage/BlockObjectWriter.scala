@@ -123,6 +123,10 @@ private[spark] class DiskBlockObjectWriter(
    */
   private var numRecordsWritten = 0
 
+  /**
+    * 打开文件输出流
+    * @return
+    */
   override def open(): BlockObjectWriter = {
     if (hasBeenClosed) {
       throw new IllegalStateException("Writer already closed. Cannot be reopened.")
@@ -136,6 +140,9 @@ private[spark] class DiskBlockObjectWriter(
     this
   }
 
+  /**
+    * 关闭文件输出流
+    */
   override def close() {
     if (initialized) {
       if (syncWrites) {
@@ -158,6 +165,9 @@ private[spark] class DiskBlockObjectWriter(
 
   override def isOpen: Boolean = objOut != null
 
+  /**
+    * 缓存数据提交
+    */
   override def commitAndClose(): Unit = {
     if (initialized) {
       // NOTE: Because Kryo doesn't flush the underlying stream we explicitly flush both the
@@ -196,6 +206,10 @@ private[spark] class DiskBlockObjectWriter(
     }
   }
 
+  /**
+    * 写入文件
+    * @param value
+    */
   override def write(value: Any) {
     if (!initialized) {
       open()
@@ -210,6 +224,7 @@ private[spark] class DiskBlockObjectWriter(
     }
   }
 
+  // 创建文件分片FileSegment（FileSegment记录分片的起始、结束偏移量）
   override def fileSegment(): FileSegment = {
     new FileSegment(file, initialPosition, finalPosition - initialPosition)
   }

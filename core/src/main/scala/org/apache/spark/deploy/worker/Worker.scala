@@ -167,7 +167,7 @@ private[spark] class Worker(
     shuffleService.startIfEnabled()
     webUi = new WorkerWebUI(this, workDir, webUiPort)
     webUi.bind()
-    //向master注册
+    // 向master注册
     registerWithMaster()
 
     metricsSystem.registerSource(workerSource)
@@ -204,11 +204,11 @@ private[spark] class Worker(
    */
   private def reregisterWithMaster(): Unit = {
     Utils.tryOrExit {
-      connectionAttemptCount += 1   //尝试次数的统计
+      connectionAttemptCount += 1   // 尝试次数的统计
       if (registered) {
         registrationRetryTimer.foreach(_.cancel())
         registrationRetryTimer = None
-      } else if (connectionAttemptCount <= TOTAL_REGISTRATION_RETRIES) { //如果尝试次数 < 阈值，继续尝试
+      } else if (connectionAttemptCount <= TOTAL_REGISTRATION_RETRIES) { // 如果尝试次数 < 阈值，继续尝试
         logInfo(s"Retrying connection to master (attempt # $connectionAttemptCount)")
         /**
          * Re-register with the active master this worker has been communicating with. If there
@@ -230,12 +230,12 @@ private[spark] class Worker(
          * still not safe if the old master recovers within this interval, but this is a much
          * less likely scenario.
          */
-        if (master != null) { //如果找到master了
-          master ! RegisterWorker(  //向master发送worker节点的信息
+        if (master != null) { // 如果找到master了
+          master ! RegisterWorker(  // 向master发送worker节点的信息
             workerId, host, port, cores, memory, webUi.boundPort, publicAddress)
         } else {
           // We are retrying the initial registration
-          tryRegisterAllMasters()  //继续尝试
+          tryRegisterAllMasters()  // 继续尝试
         }
         // We have exceeded the initial registration retry threshold
         // All retries from now on should use a higher interval
@@ -271,23 +271,23 @@ private[spark] class Worker(
     }
   }
 
-  /*Worekr的接收信息方法*/
+  /* Worker的接收信息方法 */
   override def receiveWithLogging = {
-    //接收到master发送过来的注册成功信息，包括master的url，master的webui的url
+    // 接收到master发送过来的注册成功信息，包括master的url，master的webui的url
     case RegisteredWorker(masterUrl, masterWebUiUrl) =>
       logInfo("Successfully registered with master " + masterUrl)
       registered = true
       changeMaster(masterUrl, masterWebUiUrl)
-      //启动定时发送心跳的定时周期任务，自己给自己发送心跳
+      // 启动定时发送心跳的定时周期任务，自己给自己发送心跳
       context.system.scheduler.schedule(0 millis, HEARTBEAT_MILLIS millis, self, SendHeartbeat)
       if (CLEANUP_ENABLED) {
         logInfo(s"Worker cleanup enabled; old application directories will be deleted in: $workDir")
         context.system.scheduler.schedule(CLEANUP_INTERVAL_MILLIS millis,
           CLEANUP_INTERVAL_MILLIS millis, self, WorkDirCleanup)
       }
-    //接收自己的心跳信息
+    // 接收自己的心跳信息
     case SendHeartbeat =>
-      //可以写一些业务逻辑
+      // 可以写一些业务逻辑
       if (connected) { master ! Heartbeat(workerId) }
 
     case WorkDirCleanup =>
@@ -336,16 +336,16 @@ private[spark] class Worker(
       logInfo(s"Master with url $masterUrl requested this worker to reconnect.")
       registerWithMaster()
 
-    //worker接收到master发送的启动Executor的消息，LaunchExecutor是一个case class,封装了以后要启动Executor的信息
+    // worker接收到master发送的启动Executor的消息，LaunchExecutor是一个case class,封装了以后要启动Executor的信息
     case LaunchExecutor(masterUrl, appId, execId, appDesc, cores_, memory_) =>
-      if (masterUrl != activeMasterUrl) {  //如果该master不是active状态
+      if (masterUrl != activeMasterUrl) {  // 如果该master不是active状态
         logWarning("Invalid Master (" + masterUrl + ") attempted to launch executor.")
-      } else {  //如果该master是active状态
+      } else {  // 如果该master是active状态
         try {
           logInfo("Asked to launch executor %s/%d for %s".format(appId, execId, appDesc.name))
 
           // Create the executor's working directory
-          //executor执行时，会创建一些目录，来保存执行计算任务时持久化的数据（例如Shuffle等操作）
+          // executor执行时，会创建一些目录，来保存执行计算任务时持久化的数据（例如Shuffle等操作）
           val executorDir = new File(workDir, appId + "/" + execId)
           if (!executorDir.mkdirs()) {
             throw new IOException("Failed to create directory " + executorDir)
@@ -360,29 +360,29 @@ private[spark] class Worker(
             }.toSeq
           }
           appDirectories(appId) = appLocalDirs
-          //创建一个ExecutorRunner实例，将启动参数都放到其中，然后再通过他启动Executor
+          // 创建一个ExecutorRunner实例，将启动参数都放到其中，然后再通过他启动Executor
           val manager = new ExecutorRunner(
             appId,
-            execId, //ExecutorDesc的id
-            //appDesc是ApplicationDescription类，其中appUiUrl保存了driver的url，用于与driver进行通信
+            execId, // ExecutorDesc的id
+            // appDesc是ApplicationDescription类，其中appUiUrl保存了driver的url，用于与driver进行通信
             appDesc.copy(command = Worker.maybeUpdateSSLSettings(appDesc.command, conf)),
             cores_,
             memory_,
-            self,  //worker actor的引用，用于与worker进行通信
+            self,  // worker actor的引用，用于与worker进行通信
             workerId,
-            host,   //worker的host，用于与worker进行通信
+            host,   // worker的host，用于与worker进行通信
             webUi.boundPort,
             publicAddress,
             sparkHome,
             executorDir,
-            akkaUrl,   //worker的url
+            akkaUrl,   // worker的url
             conf,
             appLocalDirs, ExecutorState.LOADING)
-          executors(appId + "/" + execId) = manager //将这个ExecutorRunner信息保存到HashMap[String, ExecutorRunner]
-          manager.start() //调用ExecutorRunner对象的start方法
+          executors(appId + "/" + execId) = manager // 将这个ExecutorRunner信息保存到HashMap[String, ExecutorRunner]
+          manager.start() // 调用ExecutorRunner对象的start方法
           coresUsed += cores_
           memoryUsed += memory_
-          //worker向master发送executor状态改变的消息，告知Executor启动成功
+          // worker向master发送executor状态改变的消息，告知Executor启动成功
           master ! ExecutorStateChanged(appId, execId, manager.state, None, None)
         } catch {
           case e: Exception => {
@@ -391,12 +391,12 @@ private[spark] class Worker(
               executors(appId + "/" + execId).kill()
               executors -= appId + "/" + execId
             }
-            //worker向master发送executor状态改变的消息，告知Executor启动失败
+            // worker向master发送executor状态改变的消息，告知Executor启动失败
             master ! ExecutorStateChanged(appId, execId, ExecutorState.FAILED,
               Some(e.toString), None)
           }
         }
-      }//else
+      } // else
 
     case ExecutorStateChanged(appId, execId, state, message, exitStatus) =>
       master ! ExecutorStateChanged(appId, execId, state, message, exitStatus)
@@ -435,7 +435,7 @@ private[spark] class Worker(
 
     case LaunchDriver(driverId, driverDesc) => {
       logInfo(s"Asked to launch driver $driverId")
-      //首先創建DriverRunner
+      // 首先創建DriverRunner
       val driver = new DriverRunner(
         conf,
         driverId,
@@ -474,16 +474,17 @@ private[spark] class Worker(
         case _ =>
           logDebug(s"Driver $driverId changed state to $state")
       }
-      //向master发送DriverStateChanged消息，master会进行状态改变处理
+      // 向master发送DriverStateChanged消息，master会进行状态改变处理
       master ! DriverStateChanged(driverId, state, exception)
-      //将driver从本地缓存中移除
+      // 将driver从本地缓存中移除
       val driver = drivers.remove(driverId).get
-      //将driver加入完成的driver的队列
+      // 将driver加入完成的driver的队列
       finishedDrivers(driverId) = driver
       memoryUsed -= driver.driverDesc.mem
       coresUsed -= driver.driverDesc.cores
     }
 
+    // Akka的通信机制保证当互相通信的任意一方异常退出，另一方都会收到DisassociatedEvent
     case x: DisassociatedEvent if x.remoteAddress == masterAddress =>
       logInfo(s"$x Disassociated !")
       masterDisconnected()
@@ -541,7 +542,7 @@ private[spark] object Worker extends Logging {
     SignalLogger.register(log)
     val conf = new SparkConf
     val args = new WorkerArguments(argStrings, conf)
-    //创建ActorSystem和Actor
+    // 创建ActorSystem和Actor
     val (actorSystem, _) = startSystemAndActor(args.host, args.port, args.webUiPort, args.cores,
       args.memory, args.masters, args.workDir)
     actorSystem.awaitTermination()
@@ -562,11 +563,11 @@ private[spark] object Worker extends Logging {
     val systemName = "sparkWorker" + workerNumber.map(_.toString).getOrElse("")
     val actorName = "Worker"
     val securityMgr = new SecurityManager(conf)
-    //创建ActorSystem
+    // 创建ActorSystem
     val (actorSystem, boundPort) = AkkaUtils.createActorSystem(systemName, host, port,
       conf = conf, securityManager = securityMgr)
     val masterAkkaUrls = masterUrls.map(Master.toAkkaUrl(_, AkkaUtils.protocol(actorSystem)))
-    //创建Actor
+    // 创建Actor
     actorSystem.actorOf(Props(classOf[Worker], host, boundPort, webUiPort, cores, memory,
       masterAkkaUrls, systemName, actorName,  workDir, conf, securityMgr), name = actorName)
     (actorSystem, boundPort)

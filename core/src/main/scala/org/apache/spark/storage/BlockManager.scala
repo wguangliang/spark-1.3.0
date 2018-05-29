@@ -162,8 +162,10 @@ private[spark] class BlockManager(
   private var asyncReregisterTask: Future[Unit] = null
   private val asyncReregisterLock = new Object
 
+  // 为了有效利用磁盘空间和内存，metadataCleaner清除blockInfo:TimeStampedHashMap[BlockId, BlockInfo]中很久不用的非广播Block信息
   private val metadataCleaner = new MetadataCleaner(
     MetadataCleanerType.BLOCK_MANAGER, this.dropOldNonBroadcastBlocks, conf)
+  // 为了有效利用磁盘空间和内存，broadcastCleaner清除blockInfo:TimeStampedHashMap[BlockId, BlockInfo]中很久不用的广播Block信息
   private val broadcastCleaner = new MetadataCleaner(
     MetadataCleanerType.BROADCAST_VARS, this.dropOldBroadcastBlocks, conf)
 
@@ -315,11 +317,14 @@ private[spark] class BlockManager(
   /**
    * Interface to get local block data. Throws an exception if the block cannot be found or
    * cannot be read successfully.
+   * 用于从本地获取block的数据
    */
   override def getBlockData(blockId: BlockId): ManagedBuffer = {
     if (blockId.isShuffle) {
-      shuffleManager.shuffleBlockManager.getBlockData(blockId.asInstanceOf[ShuffleBlockId])
+      // 如果block是shufflemaptask的输出，那么多个partition的中间结果都会写入了同一个文件
+      shuffleManager.shuffleBlockManager.getBlockData(blockId.asInstanceOf[ShuffleBlockId]) // IndexShuffleBlockManager调用getBlockData方法
     } else {
+      // 如果block是resulttask的输出，则使用doGetLocal来获取本地中间结果数据
       val blockBytesOpt = doGetLocal(blockId, asBlockResult = false)
         .asInstanceOf[Option[ByteBuffer]]
       if (blockBytesOpt.isDefined) {
@@ -469,6 +474,12 @@ private[spark] class BlockManager(
     }
   }
 
+  /**
+    * 当reduce任务和map任务在同一个节点时，不需要远程拉取。只需调取doGetLocal方法从本地获取中间处理结果即可
+    * @param blockId
+    * @param asBlockResult
+    * @return
+    */
   private def doGetLocal(blockId: BlockId, asBlockResult: Boolean): Option[Any] = {
     val info = blockInfo.get(blockId).orNull
     if (info != null) {
@@ -494,6 +505,7 @@ private[spark] class BlockManager(
         logDebug(s"Level for block $blockId is $level")
 
         // Look for the block in memory
+        // 如果Block允许使用内存，则调用MemoryStore的getValues或者getBytes方法获取。
         if (level.useMemory) {
           logDebug(s"Getting block $blockId from memory")
           val result = if (asBlockResult) {
@@ -510,6 +522,7 @@ private[spark] class BlockManager(
         }
 
         // Look for the block in Tachyon
+        // 如果Block允许使用tachyon，则调用TachyonStore的getValues或者getBytes方法获取。
         if (level.useOffHeap) {
           logDebug(s"Getting block $blockId from tachyon")
           if (tachyonStore.contains(blockId)) {
@@ -528,6 +541,7 @@ private[spark] class BlockManager(
         }
 
         // Look for block on disk, potentially storing it back in memory if required
+        // 如果Block允许使用DiskStore，则调用DiskStore的getValues或者getBytes方法获取。
         if (level.useDisk) {
           logDebug(s"Getting block $blockId from disk")
           val bytes: ByteBuffer = diskStore.getBytes(blockId) match {
@@ -603,6 +617,12 @@ private[spark] class BlockManager(
     doGetRemote(blockId, asBlockResult = false).asInstanceOf[Option[ByteBuffer]]
   }
 
+  /**
+    * 远程获取Block数据方法
+    * @param blockId
+    * @param asBlockResult
+    * @return
+    */
   private def doGetRemote(blockId: BlockId, asBlockResult: Boolean): Option[Any] = {
     require(blockId != null, "BlockId is null")
     val locations = Random.shuffle(master.getLocations(blockId))
@@ -629,6 +649,9 @@ private[spark] class BlockManager(
 
   /**
    * Get a block from the block manager (either local or remote).
+   *  从BlockManager中获取block信息
+    *  get方法在实现上首先从本地获取，如果没有则去远程获取
+    *
    */
   def get(blockId: BlockId): Option[BlockResult] = {
     val local = getLocal(blockId)
@@ -667,6 +690,7 @@ private[spark] class BlockManager(
       writeMetrics: ShuffleWriteMetrics): BlockObjectWriter = {
     val compressStream: OutputStream => OutputStream = wrapForCompression(blockId, _)
     val syncWrites = conf.getBoolean("spark.shuffle.sync", false)
+    // DiskBlockObjectWriter被用于输出Spark任务的中间计算结果
     new DiskBlockObjectWriter(blockId, file, serializer, bufferSize, compressStream, syncWrites,
       writeMetrics)
   }
@@ -883,6 +907,7 @@ private[spark] class BlockManager(
 
   /**
    * Get peer block managers in the system.
+   * 得到系统中所有blockmanager
    */
   private def getPeers(forceFetch: Boolean): Seq[BlockManagerId] = {
     peerFetchLock.synchronized {
@@ -901,13 +926,19 @@ private[spark] class BlockManager(
    * Replicate block to another node. Not that this is a blocking call that returns after
    * the block has been replicated.
    * 数据块备份 方法
+   * 过程如下：
+    * 1）调用getRandomPeer随机获取BlockManager
+    * 2）上传Block到BlockManager
+    * 3）如果上传成功，则将此BlockManager添加到peersReplicatedTo，而从peersForReplication中出，设置replicationFailed等于false，done等于true；
+    *    如果上传过程出现异常，则将此BlockManager添加到peersFailedToReplicateTo，failures自增，设置replicationFailed等于true，donoe等于false
+    *    如果上传失败，以上过程会迭代多次，直到失败次数failures超过最大失败次数maxReplicationFailures
    */
   private def replicate(blockId: BlockId, data: ByteBuffer, level: StorageLevel): Unit = {
     val maxReplicationFailures = conf.getInt("spark.storage.maxReplicationFailures", 1)
-    val numPeersToReplicateTo = level.replication - 1
-    val peersForReplication = new ArrayBuffer[BlockManagerId]
-    val peersReplicatedTo = new ArrayBuffer[BlockManagerId]
-    val peersFailedToReplicateTo = new ArrayBuffer[BlockManagerId]
+    val numPeersToReplicateTo = level.replication - 1  // 假如需要3个备份，则还需要再备份3-1=2
+    val peersForReplication = new ArrayBuffer[BlockManagerId] // 系统中所有的BlockManagerId的集合
+    val peersReplicatedTo = new ArrayBuffer[BlockManagerId] // 装载上传成功的BlockManagerId的集合
+    val peersFailedToReplicateTo = new ArrayBuffer[BlockManagerId] // 装载上传失败的BlockManagerId的集合
     val tLevel = StorageLevel(
       level.useDisk, level.useMemory, level.useOffHeap, level.deserialized, 1)
     val startTime = System.currentTimeMillis
@@ -915,10 +946,10 @@ private[spark] class BlockManager(
 
     var replicationFailed = false
     var failures = 0
-    var done = false
+    var done = false  // 上传成功的标识
 
     // Get cached list of peers
-    peersForReplication ++= getPeers(forceFetch = false)
+    peersForReplication ++= getPeers(forceFetch = false)  // 得到系统中所有blockmanager
 
     // Get a random peer. Note that this selection of a peer is deterministic on the block id.
     // So assuming the list of peers does not change and no replication failures,
@@ -927,14 +958,15 @@ private[spark] class BlockManager(
     def getRandomPeer(): Option[BlockManagerId] = {
       // If replication had failed, then force update the cached list of peers and remove the peers
       // that have been already used
-      if (replicationFailed) {
+      if (replicationFailed) { // 如果备份失败了
         peersForReplication.clear()
         peersForReplication ++= getPeers(forceFetch = true)
         peersForReplication --= peersReplicatedTo
         peersForReplication --= peersFailedToReplicateTo
       }
+      // 如果还有可以备份的ManagerId
       if (!peersForReplication.isEmpty) {
-        Some(peersForReplication(random.nextInt(peersForReplication.size)))
+        Some(peersForReplication(random.nextInt(peersForReplication.size)))  // 随机选择一个ManagerId 返回
       } else {
         None
       }
@@ -953,26 +985,27 @@ private[spark] class BlockManager(
     //
     while (!done) {
       getRandomPeer() match {
-        case Some(peer) =>
+        case Some(peer) =>  // 匹配ManagerId
           try {
             val onePeerStartTime = System.currentTimeMillis
-            data.rewind()
+            data.rewind() // 数据重新指向开始
             logTrace(s"Trying to replicate $blockId of ${data.limit()} bytes to $peer")
+            // 异步上传方法。实际是铜鼓哦调用BlockTransferService.uploadBlock来完成的
             blockTransferService.uploadBlockSync(
               peer.host, peer.port, peer.executorId, blockId, new NioManagedBuffer(data), tLevel)
             logTrace(s"Replicated $blockId of ${data.limit()} bytes to $peer in %s ms"
               .format(System.currentTimeMillis - onePeerStartTime))
-            peersReplicatedTo += peer
-            peersForReplication -= peer
-            replicationFailed = false
-            if (peersReplicatedTo.size == numPeersToReplicateTo) {
+            peersReplicatedTo += peer  // 将该managerid存入已上传完成的队列中
+            peersForReplication -= peer  // 将该managerid从候选上传Block的managerid的队列中删除
+            replicationFailed = false  // 设置没有失败
+            if (peersReplicatedTo.size == numPeersToReplicateTo) {  // 当完成上传队列的size = 备份个数-1时 ，标识完成！
               done = true  // specified number of peers have been replicated to
             }
           } catch {
             case e: Exception =>
               logWarning(s"Failed to replicate $blockId to $peer, failure #$failures", e)
-              failures += 1
-              replicationFailed = true
+              failures += 1 // 如果是吧
+              replicationFailed = true  // 上传有失败的
               peersFailedToReplicateTo += peer
               if (failures > maxReplicationFailures) { // too many failures in replcating to peers
                 done = true
@@ -1138,14 +1171,19 @@ private[spark] class BlockManager(
 
   private def dropOldNonBroadcastBlocks(cleanupTime: Long): Unit = {
     logInfo(s"Dropping non broadcast blocks older than $cleanupTime")
-    dropOldBlocks(cleanupTime, !_.isBroadcast)
+    dropOldBlocks(cleanupTime, !_.isBroadcast) // 如果非广播，则!_.isBroadcast为true
   }
 
   private def dropOldBroadcastBlocks(cleanupTime: Long): Unit = {
     logInfo(s"Dropping broadcast blocks older than $cleanupTime")
-    dropOldBlocks(cleanupTime, _.isBroadcast)
+    dropOldBlocks(cleanupTime, _.isBroadcast) // 如果广播，则_.isBroadcast为true
   }
 
+  /**
+    *
+    * @param cleanupTime
+    * @param shouldDrop 判断是否为广播变量。true为广播变量；false 为非广播变量
+    */
   private def dropOldBlocks(cleanupTime: Long, shouldDrop: (BlockId => Boolean)): Unit = {
     val iterator = blockInfo.getEntrySet.iterator
     while (iterator.hasNext) {
@@ -1154,6 +1192,7 @@ private[spark] class BlockManager(
       if (time < cleanupTime && shouldDrop(id)) {
         info.synchronized {
           val level = info.level
+          // 从MemoryStore，DiskStore和TachyonStore中删除blockid
           if (level.useMemory) { memoryStore.remove(id) }
           if (level.useDisk) { diskStore.remove(id) }
           if (level.useOffHeap) { tachyonStore.remove(id) }
@@ -1162,7 +1201,7 @@ private[spark] class BlockManager(
         }
         val status = getCurrentBlockStatus(id, info)
         reportBlockStatus(id, info, status)
-      }
+      } // if
     }
   }
 
@@ -1192,6 +1231,7 @@ private[spark] class BlockManager(
   }
 
   /** Serializes into a stream. */
+  // 数据流序列化方法
   def dataSerializeStream(
       blockId: BlockId,
       outputStream: OutputStream,

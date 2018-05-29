@@ -55,14 +55,15 @@ object Partitioner {
    * We use two method parameters (rdd, others) to enforce callers passing at least 1 RDD.
    */
   def defaultPartitioner(rdd: RDD[_], others: RDD[_]*): Partitioner = {
-    val bySize = (Seq(rdd) ++ others).sortBy(_.partitions.size).reverse
-    for (r <- bySize if r.partitioner.isDefined) {
+    val bySize = (Seq(rdd) ++ others).sortBy(_.partitions.size).reverse // 按照partition的size倒序排列
+    for (r <- bySize if r.partitioner.isDefined) {  // 如果定义了，直接返回
       return r.partitioner.get
     }
-    if (rdd.context.conf.contains("spark.default.parallelism")) {
+    // 否则，生成hashpartitioner
+    if (rdd.context.conf.contains("spark.default.parallelism")) { // 配置了，则使用配置生成HashPartitioner
       new HashPartitioner(rdd.context.defaultParallelism)
     } else {
-      new HashPartitioner(bySize.head.partitions.size)
+      new HashPartitioner(bySize.head.partitions.size) // 否则使用最大的partion个数作为生成HashPartitioner
     }
   }
 }

@@ -26,6 +26,7 @@ import org.apache.spark.storage._
 /**
  * Spark class responsible for passing RDDs partition contents to the BlockManager and making
  * sure a node doesn't load two copies of an RDD at once.
+ * 可能会误以为RDD都缓存在CacheManager的某个存储部分中，实际上CacheManager只是对BlockManager的代理，真正的缓存依然使用BlockManager
  */
 private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
 
@@ -33,6 +34,10 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
   private val loading = new mutable.HashSet[RDDBlockId]
 
   /** Gets or computes an RDD partition. Used by RDD.iterator() when an RDD is cached. */
+  // 在任务迭代计算中，当判断存储级别使用了缓存，就会调用cachemanager的getOrCompute方法
+  //  1）从存储体系获取block
+  //  2）如果确实获取到了Block，那么将它封装为InterruptibleIterator并返回。
+  //    如果还没有缓存Block，则重新计算或者从checkpoint中获取数据，并调用putInBlockManager方法将数据写入缓存后封装为InterruptibleIterator并返回
   def getOrCompute[T](
       rdd: RDD[T],
       partition: Partition,
@@ -88,7 +93,7 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
             loading.notifyAll()
           }
         }
-    }
+    } // blockManager.get(key) match
   }
 
   /**
@@ -136,6 +141,12 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
    * behavior, not the level originally specified by the user. This is mainly for forcing a
    * MEMORY_AND_DISK partition to disk if there is not enough room to unroll the partition,
    * while preserving the the original semantics of the RDD as specified by the application.
+   * 处理步骤：
+    * 1）获取实际的存储级别
+    * 2）如果存储级别不允许使用内存，那么直接调用BlockManager的putIterator方法。
+    *     在doPut方法的处理中，由于存储级别不允许使用内存，所以数据实际被直接希尔了磁盘或者Tachyon
+    * 3）如果存储级别允许使用内存，那么首先尝试展开。如果展开成功，说明有足够内存可以存储数据。因此将数据存入内存；
+    *    如果展开失败，则将数据存入磁盘
    */
   private def putInBlockManager[T](
       key: BlockId,
@@ -170,11 +181,13 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
        * dropping the partition to disk if applicable.
        */
       blockManager.memoryStore.unrollSafely(key, values, updatedBlocks) match {
+        //  成功展开
         case Left(arr) =>
           // We have successfully unrolled the entire partition, so cache it in memory
           updatedBlocks ++=
             blockManager.putArray(key, arr, level, tellMaster = true, effectiveStorageLevel)
           arr.iterator.asInstanceOf[Iterator[T]]
+        // 展开失败
         case Right(it) =>
           // There is not enough space to cache this partition in memory
           val returnValues = it.asInstanceOf[Iterator[T]]

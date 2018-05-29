@@ -229,13 +229,17 @@ class DAGScheduler(
    * Get or create a shuffle map stage for the given shuffle dependency's map side.
    * The jobId value passed in will be used if the stage doesn't already exist with
    * a lower jobId (jobId always increases across jobs.)
+    * 处理步骤：
+    * 1）如果已经注册了ShuffleDependency对应的Stage，则直接返回此Stage
+    * 2）否则调用registerShuffleDependencies方法找到所有祖先中，还没有为其注册过Stage的ShuffleDependency
+    *     调用方法newOrUsedStage创建Stage并注册。最后还会为当前ShuffleDependency，调用方法newOrUsedStage创建、注册并返回此Stage
    */
   // 6处被调用
   private def getShuffleMapStage(shuffleDep: ShuffleDependency[_, _, _], jobId: Int): Stage = {
     // 根据shuffeId查找stage是否存在
     shuffleToMapStage.get(shuffleDep.shuffleId) match {
-      case Some(stage) => stage //如果已经存在，则直接返回
-      case None => //如果不存在
+      case Some(stage) => stage // 如果已经存在，则直接返回
+      case None => // 如果不存在
         // 如果有stage则直接使用，否则根据stage创建新的parent stage
         // We are going to register ancestor shuffle dependencies
         // 注册以前的shuffle dependency，并将shuffle dependency转换为新的stage或已经存在的stage
@@ -259,6 +263,10 @@ class DAGScheduler(
    * directly.
    */
   // 用于创建stage，从最后一个rdd，从后往前推，找父rdd，看依赖是否是宽依赖。直到找到没有父rdd
+  // 1）调用getParentStages获取所有的父Stage列表。父Stage主要是宽依赖（ShuffleDependency）对应的Stage
+  // 2）生成Stage的Id，并创建Stage
+  // 3）将Stage注册到stageIdToStage = new HashMap[Int, Stage]中
+  // 4）调用updateJobIdStageIdMaps方法Stage及其祖先Stage与jobId的对应关系
   private def newStage(
       rdd: RDD[_], // 最后一个rdd
       numTasks: Int, // 创建newStage方法的这个参数传入的是partitions.size.所以一个分区对应一个task！
@@ -267,12 +275,14 @@ class DAGScheduler(
       callSite: CallSite)
     : Stage =
   {
-    val parentStages = getParentStages(rdd, jobId)  // 获取他的父stage
-    // 获得stage的id
+    val parentStages = getParentStages(rdd, jobId)  // 1）获取他的父stage
+    // 2）获得stage的id
     val id = nextStageId.getAndIncrement()
     // 创建新的stage，会传入父stage，形成依赖关系，组成DAG图
     val stage = new Stage(id, rdd, numTasks, shuffleDep, parentStages, jobId, callSite)
+    // 3）将Stage注册到stageIdToStage = new HashMap[Int, Stage]中
     stageIdToStage(id) = stage
+    // 4）调用updateJobIdStageIdMaps方法Stage及其祖先Stage与jobId的对应关系
     updateJobIdStageIdMaps(jobId, stage)
     stage
   }
@@ -313,24 +323,25 @@ class DAGScheduler(
    * Get or create the list of parent stages for a given RDD. The stages will be assigned the
    * provided jobId if they haven't already been created with a lower jobId.
    */
+  // job会被划分一到多个Stage。这些Stage的划分是从finalStage开始，从后向前边划分边创建的
   // 用于获取给定rdd的一系列父stage，每个stage分配一个jobid
   private def getParentStages(rdd: RDD[_], jobId: Int): List[Stage] = {
     val parents = new HashSet[Stage]  // parents RDD; HashSet为了防止里面元素重复
     val visited = new HashSet[RDD[_]]  // 存储已经被访问的RDD，构建的时候是从后往前回溯的一个过程，回溯过之后就会被保存起来。
     // We are manually maintaining a stack here to prevent StackOverflowError
     // caused by recursively visiting
-    val waitingForVisit = new Stack[RDD[_]]   //栈
+    val waitingForVisit = new Stack[RDD[_]]   // 栈
     def visit(r: RDD[_]) {
       if (!visited(r)) { // 如果还未访问过该rdd
         visited += r // 访问过该rdd
         // Kind of ugly: need to register RDDs with the cache here since
         // we can't do it in its constructor because # of partitions is unknown
         // 这里会一直向上查找，直到看到Shuffle依赖。如果没有，那么这个作业就是一个stage
-        for (dep <- r.dependencies) {//找到该rdd的依赖。宽依赖是多个，窄依赖是一个。所以这里是复数
+        for (dep <- r.dependencies) {// 找到该rdd的依赖。宽依赖是多个，窄依赖是一个。所以这里是复数
           dep match {
             case shufDep: ShuffleDependency[_, _, _] => // 如果依赖关系是shufDep
               // 这是真正创建stage的方法
-              parents += getShuffleMapStage(shufDep, jobId) // 如果碰到关系是宽依赖，则使用该方法计算他的stage
+              parents += getShuffleMapStage(shufDep, jobId) // 如果碰到关系是宽依赖，则使用该方法计算他的stage。用于获取或者创建Stage并注册到shuffleToMapStage
             case _ =>    // 是窄依赖的话
               waitingForVisit.push(dep.rdd) // 压栈，认为父rdd与该rdd是一个stage
           }
@@ -348,6 +359,7 @@ class DAGScheduler(
 
   // Find ancestor missing shuffle dependencies and register into shuffleToMapStage
   private def registerShuffleDependencies(shuffleDep: ShuffleDependency[_, _, _], jobId: Int) = {
+    // 找到RDD直接或者间接依赖的所有祖先，还没有为其注册过Stage
     val parentsWithNoMapStage = getAncestorShuffleDependencies(shuffleDep.rdd)
     while (!parentsWithNoMapStage.isEmpty) {
       val currentShufDep = parentsWithNoMapStage.pop()
@@ -425,6 +437,9 @@ class DAGScheduler(
   /**
    * Registers the given jobId among the jobs that need the given stage and
    * all of that stage's ancestors.
+    * 通过迭代内部的updateJobIdStageIdMapList函数，最终将jobId添加到Stage及他的所有祖先Stage的映射jobIds = new HashSet[Int]中
+    * 将jobId和Stage及他的所有祖先Stage的id，更新到jobIdToStageIds = new HashMap[Int]中。
+    *
    */
   private def updateJobIdStageIdMaps(jobId: Int, stage: Stage) {
     def updateJobIdStageIdMapsList(stages: List[Stage]) {
@@ -519,14 +534,14 @@ class DAGScheduler(
           "Total number of partitions: " + maxPartitions)
     }
 
-    val jobId = nextJobId.getAndIncrement()
+    val jobId = nextJobId.getAndIncrement()  // 生成当前Job的jobId
     if (partitions.size == 0) {
       return new JobWaiter[U](this, jobId, 0, resultHandler)
     }
 
     assert(partitions.size > 0)
     val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
-    // 创建JobWaiter实例
+    // 创建JobWaiter实例，该JobWaiter被阻塞，直到job完成或者被取消
     val waiter = new JobWaiter(this, jobId, partitions.size, resultHandler)
     // 向eventProcessLoop提交JobSubmited类型的事件，放到eventProcessLoop的阻塞队列中
     eventProcessLoop.post(JobSubmitted( // 将数据封装到JobSubmitted case class
@@ -547,7 +562,7 @@ class DAGScheduler(
     // 调用submitJob方法，并返回一个回调器
     // rdd是最后一个rdd，func是传入的方法，partions是分区数组
     val waiter = submitJob(rdd, func, partitions, callSite, allowLocal, resultHandler, properties)
-    // 等待结果
+    // 任务的执行是异步的，等待结果
     waiter.awaitResult() match {
       // 如果正常执行了
       case JobSucceeded => {
@@ -759,6 +774,12 @@ class DAGScheduler(
 
   /**
    * //用来切分stage
+   * 执行步骤：
+    * 1）创建finalStage及Stage的划分
+    * 2）创建ActiveJob并更新jobIdToActiveJob = new HashMap[Int, ActiveJob]、activeJobs = new HashSet[ActiveJob] 和finalStage.resultOfJob
+    * 3）想listenerBus发送SparkListenerJobStart事件
+    * 4）提交finalStage
+    * 5）提交等待中的Stage
    * @param jobId
    * @param finalRDD 最后一个rdd
    * @param func
@@ -839,7 +860,7 @@ class DAGScheduler(
         if (missing == Nil) { // 为空说明是第一个Stage
           logInfo("Submitting " + stage + " (" + stage.rdd + "), which has no missing parents")
           // 开始提交最前面的Stage，将stage封装task，在stage里面切割task
-          submitMissingTasks(stage, jobId.get)
+          submitMissingTasks(stage, jobId.get)  // 提交task的入口：提交还未计算的任务
         } else { // 有父Stage，就递归提交
           for (parent <- missing) {
             submitStage(parent)  // 递归调用，再寻找其父父RDD
@@ -855,6 +876,20 @@ class DAGScheduler(
   /** Called when stage's parents are available and we can now do its task. */
   /**
    * DAG 提交Stage给TaskScheduler
+    * 过程：
+    * 1）清空pendingTasks。由于当前Stage的任务刚开始提交，所有需要清空，便于记录需要计算的任务
+    * 2）找出还未计算的partition(如果Stage是map任务，那么outputLocs中partition对应的List[MapStatus]为Nil,
+    *   说明此partition还未计算。如果Stage不是map任务，那么需要获取Stage的finalJob，并调用finished方法判断每个partition的任务是否完成)
+    * 3）将当前Stage加入运行中的Stage集合（runningStages:HashSet[Stage]）中
+    * 4）使用StageInfo.fromStage方法创建当前Stage的latestInfo(StageInfo)
+    * 5）向listenerBus发送SparkListenerStageSubmitted事件。
+    * 6）如果Stage是map任务，那么序列化Stage的RDD及ShuffleDependency。
+    *    如果Stage不是map任务，那么序列化Stage的RDD及resutlOfJob的处理函数。
+    *    这些序列化得到的字节数组最后需要使用sc.broadcast进行广播
+    * 7）如果Stage是map任务，则创建ShuffleMapTask，否则创建ResultTask。
+    * 还未计算的partition个数决定了最终创建的Task个数。
+    * 并将创建的所有Task都添加到Stage的pendingTasks中。
+    * 8）利用上一步创建的所有Task、当前Stage的id、jobId等信息创建TaskSet，并调用TaskScheduler的submitTasks，批量提交Stage及其所有Task
    * @param stage
    * @param jobId
    */
@@ -1436,6 +1471,7 @@ class DAGScheduler(
     override def onReceive(event: DAGSchedulerEvent): Unit = event match {  // 事件匹配
       // 如果该事件是提交任务，进入JobSubmitted case
       case JobSubmitted(jobId, rdd, func, partitions, allowLocal, callSite, listener, properties) =>
+        // 调用dageScheduler的handleJobSubmitted
         dagScheduler.handleJobSubmitted(jobId, rdd, func, partitions, allowLocal, callSite,
           listener, properties)
 

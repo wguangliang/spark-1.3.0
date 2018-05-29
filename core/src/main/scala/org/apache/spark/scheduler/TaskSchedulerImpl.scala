@@ -161,6 +161,10 @@ private[spark] class TaskSchedulerImpl(
     waitBackendReady()
   }
   // TODO 该方法用于提交Tasks
+  // 步骤：
+  // 1)构建任务管理器。即将TaskScheduler、TaskSet及最大失败次数（maxTaskFailures）封装为TaskSetManager
+  // 2)设置任务集调度策略（调度模式有FAIR和FIFO，此处默认是FIFO）。将TaskSetManager添加到FIFOSchedulableBuilder中
+  // 3)资源分配。调用LocalBackend的reviveOffers方法，实际向localActor发哦送ReviveOffers消息。
   override def submitTasks(taskSet: TaskSet) {
     val tasks = taskSet.tasks  // task的集合
     logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
@@ -241,6 +245,7 @@ private[spark] class TaskSchedulerImpl(
       val host = shuffledOffers(i).host
       if (availableCpus(i) >= CPUS_PER_TASK) {
         try {
+          //
           for (task <- taskSet.resourceOffer(execId, host, maxLocality)) {
             tasks(i) += task
             val tid = task.taskId
@@ -267,6 +272,16 @@ private[spark] class TaskSchedulerImpl(
    * Called by cluster manager to offer resources on slaves. We respond by asking our active task
    * sets for tasks in order of priority. We fill each node with tasks in a round-robin manner so
    * that tasks are balanced across the cluster.
+    * 分配资源，其处理步骤如下：
+    * 1）标记Executor与host关系，增加激活的Executor的id，按照host对Executor分组，并向DAGSchedulerEventProcessActor发送ExecutorAdded事件等
+    * 2）计算资源的分配与计算。对所有WorkerOffer随机洗牌，避免将任务总是分配同样的WorkerOffer
+    * 3）根据每个WorkerOffer的可用的CPU核数创建同尺寸的任务描述（TaskDescription）数组
+    * 4）将每个WorkerOffer的可用的CPU核数统计到可用CPU（availableCpus）数组中
+    * 5）对rootPool中的所有TaskSetManager按照调度算法排序（本例中为FIFO调度算法）
+    * 6）调用每个TaskSetManager的resourceOffer方法，根据WorkerOffer的ExecutorId和host找到需要执行的任务并进一步进行资源处理
+    * 7）任务分配到相应的host和Executor后，将TaskId与TaskSetId的关系、taskId与ExecutorId的关系、Executors与Host的分组关系等更新
+    *       并且将availableCpus数目减去每个任务分配的CPU核数（CPUS_PER_TASK）
+    * 8）返回第3）步生成的TaskDescription
    */
   def resourceOffers(offers: Seq[WorkerOffer]): Seq[Seq[TaskDescription]] = synchronized {
     // Mark each slave as alive and remember its hostname
@@ -275,9 +290,10 @@ private[spark] class TaskSchedulerImpl(
     for (o <- offers) {
       executorIdToHost(o.executorId) = o.host
       activeExecutorIds += o.executorId
+      // 按照host对Executor进行分组
       if (!executorsByHost.contains(o.host)) {
         executorsByHost(o.host) = new HashSet[String]()
-        executorAdded(o.executorId, o.host)
+        executorAdded(o.executorId, o.host) // 向DAGSchedulerEventProcessActor发送ExecutorAdded事件
         newExecAvail = true
       }
       for (rack <- getRackForHost(o.host)) {
@@ -305,7 +321,7 @@ private[spark] class TaskSchedulerImpl(
     var launchedTask = false
     for (taskSet <- sortedTaskSets; maxLocality <- taskSet.myLocalityLevels) {
       do {
-        launchedTask = resourceOfferSingleTaskSet(
+        launchedTask = resourceOfferSingleTaskSet( // 为每个TaskSet分配资源
             taskSet, maxLocality, shuffledOffers, availableCpus, tasks)
       } while (launchedTask)
     }
@@ -435,7 +451,7 @@ private[spark] class TaskSchedulerImpl(
     starvationTimer.cancel()
   }
 
-  override def defaultParallelism() = backend.defaultParallelism()
+  override def defaultParallelism() = backend.defaultParallelism()  // conf.getInt("spark.default.parallelism", math.max(totalCoreCount.get(), 2))
 
   // Check for speculatable tasks in all our active jobs.
   def checkSpeculatableTasks() {

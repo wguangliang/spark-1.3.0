@@ -34,7 +34,7 @@ import org.apache.spark.deploy.worker.WorkerWatcher
 import org.apache.spark.scheduler.TaskDescription
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
 import org.apache.spark.util.{ActorLogReceive, AkkaUtils, SignalLogger, Utils}
-//这个类就是worker上启动的Executor进程的实现类，Executor真正的名字叫做CoarseGrainedExecutorBackend
+// 这个类就是worker上启动的Executor进程的实现类，Executor真正的名字叫做CoarseGrainedExecutorBackend
 private[spark] class CoarseGrainedExecutorBackend(
     driverUrl: String,
     executorId: String,
@@ -48,11 +48,11 @@ private[spark] class CoarseGrainedExecutorBackend(
 
   var executor: Executor = null
   var driver: ActorSelection = null
-  //CoarseGrainedExecutorBackend的生命周期方法
+  // CoarseGrainedExecutorBackend的生命周期方法
   override def preStart() {
     logInfo("Connecting to driver: " + driverUrl)
-    driver = context.actorSelection(driverUrl) //与driver进行连接
-    driver ! RegisterExecutor(executorId, hostPort, cores, extractLogUrls) //Executor向driver发送注册Executor信息
+    driver = context.actorSelection(driverUrl) // 与driver进行连接
+    driver ! RegisterExecutor(executorId, hostPort, cores, extractLogUrls) // Executor向driver发送注册Executor信息
     context.system.eventStream.subscribe(self, classOf[RemotingLifecycleEvent])
   }
 
@@ -63,29 +63,29 @@ private[spark] class CoarseGrainedExecutorBackend(
   }
 
   override def receiveWithLogging = {
-    //接收到dirver发送给Executor的executor注册成功的消息
+    // 接收到dirver发送给Executor的executor注册成功的消息
     case RegisteredExecutor =>
-      logInfo("Successfully registered with driver") //在driver端注册成功
+      logInfo("Successfully registered with driver") // 在driver端注册成功
       val (hostname, _) = Utils.parseHostPort(hostPort)
-      //创建Executor实例，用来执行业务逻辑
+      // 创建Executor实例，用来执行业务逻辑
       executor = new Executor(executorId, hostname, env, userClassPath, isLocal = false)
 
     case RegisterExecutorFailed(message) =>
       logError("Slave registration failed: " + message)
       System.exit(1)
 
-    //TODO DriverActor发送给Executor的消息，让Executor启动计算任务
-    case LaunchTask(data) =>  //data是序列化好的Task
+    // TODO DriverActor发送给Executor的消息，让Executor启动计算任务
+    case LaunchTask(data) =>  // data是序列化好的Task
       if (executor == null) {
         logError("Received LaunchTask command but executor was null")
         System.exit(1)
       } else {
-        //拿到序列化器
+        // 拿到序列化器
         val ser = env.closureSerializer.newInstance()
-        //序列化器进行反序列化
+        // 序列化器进行反序列化
         val taskDesc = ser.deserialize[TaskDescription](data.value)
         logInfo("Got assigned task " + taskDesc.taskId)
-        //TODO 将发序列化后的Task放到线程池里面
+        // TODO 将发序列化后的Task放到线程池里面
         executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
           taskDesc.name, taskDesc.serializedTask)
       }
@@ -97,7 +97,7 @@ private[spark] class CoarseGrainedExecutorBackend(
       } else {
         executor.killTask(taskId, interruptThread)
       }
-
+    // 不辞而别。Akka的通信机制保证当互相通信的任意一方异常退出，另一方都会收到DisassociatedEvent
     case x: DisassociatedEvent =>
       if (x.remoteAddress == driver.anchorPath.address) {
         logError(s"Driver $x disassociated! Shutting down.")
@@ -113,6 +113,12 @@ private[spark] class CoarseGrainedExecutorBackend(
       context.system.shutdown()
   }
 
+  /**
+    * 调用execBackend的statusUpdate方法更新状态，并向driver actor发送状态StatusUpdate信息
+    * @param taskId
+    * @param state
+    * @param data
+    */
   override def statusUpdate(taskId: Long, state: TaskState, data: ByteBuffer) {
     driver ! StatusUpdate(executorId, taskId, state, data)
   }
@@ -138,14 +144,14 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       // Bootstrap to fetch the driver's Spark properties.
       val executorConf = new SparkConf
       val port = executorConf.getInt("spark.executor.port", 0)
-      //在Executor里创建ActorSystem
+      // 在Executor里创建ActorSystem
       val (fetcher, _) = AkkaUtils.createActorSystem(
         "driverPropsFetcher",
         hostname,
         port,
         executorConf,
         new SecurityManager(executorConf))
-      val driver = fetcher.actorSelection(driverUrl)  //获得driver的代理对象，与driver建立连接
+      val driver = fetcher.actorSelection(driverUrl)  // 获得driver的代理对象，与driver建立连接
       val timeout = AkkaUtils.askTimeout(executorConf)
       val fut = Patterns.ask(driver, RetrieveSparkProps, timeout)
       val props = Await.result(fut, timeout).asInstanceOf[Seq[(String, String)]] ++
@@ -171,21 +177,21 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
 
       // Start the CoarseGrainedExecutorBackend actor.
       val sparkHostPort = hostname + ":" + boundPort
-     //创建actor，类型为CoarseGrainedExecutorBackend ,用于与driver进行通信
+     // 创建actor，类型为CoarseGrainedExecutorBackend ,用于与driver进行通信
       env.actorSystem.actorOf(
         Props(classOf[CoarseGrainedExecutorBackend],
           driverUrl, executorId, sparkHostPort, cores, userClassPath, env),
         name = "Executor")
-      //创建actor，类型为WorkerWatcher，用于与其他worker进行通信
+      // 创建actor，类型为WorkerWatcher，用于与其他worker进行通信
       workerUrl.foreach { url =>
         env.actorSystem.actorOf(Props(classOf[WorkerWatcher], url), name = "WorkerWatcher")
       }
-      env.actorSystem.awaitTermination()   //启动，进入presStart方法
+      env.actorSystem.awaitTermination()   // 启动，进入presStart方法
     }
   }
-  //Executor进程执行的入口
+  // Executor进程执行的入口
   def main(args: Array[String]) {
-    var driverUrl: String = null //driver url，用于与driver进行通信
+    var driverUrl: String = null // driver url，用于与driver进行通信
     var executorId: String = null
     var hostname: String = null
     var cores: Int = 0

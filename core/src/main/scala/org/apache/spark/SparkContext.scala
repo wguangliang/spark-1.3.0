@@ -817,6 +817,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       ): RDD[(K, V)] = {
     assertNotStopped()
     // A Hadoop configuration can be about 10 KB, which is pretty big, so broadcast it.
+    // 将hadoop的配置文件广播出去
     val confBroadcast = broadcast(new SerializableWritable(hadoopConfiguration))
     val setInputPathsFunc = (jobConf: JobConf) => FileInputFormat.setInputPaths(jobConf, path)
     new HadoopRDD(
@@ -1516,7 +1517,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
       throw new IllegalStateException("SparkContext has been shutdown")
     }
     val callSite = getCallSite
-    val cleanedFunc = clean(func)  // 对函数进行校验，为了防止函数出现问题
+    val cleanedFunc = clean(func)  // 对函数进行校验，为了防止闭包的反序列化错误
     logInfo("Starting job: " + callSite.shortForm)
     if (conf.getBoolean("spark.logLineage", false)) { // 如果传入spark.logLineage参数为true，可以打印出RDD之间的血统关系
       logInfo("RDD's recursive dependencies:\n" + rdd.toDebugString)
@@ -1681,6 +1682,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
    * @param checkSerializable whether or not to immediately check <tt>f</tt> for serializability
    * @throws <tt>SparkException<tt> if <tt>checkSerializable</tt> is set but <tt>f</tt> is not
    *   serializable
+   * 实际上调用了ClosureCleaner的clean方法。这里意在清除闭包中的不能序列化的变量，防止RDD在网络传输过程中反序列化失败
+   *
    */
   private[spark] def clean[F <: AnyRef](f: F, checkSerializable: Boolean = true): F = {
     ClosureCleaner.clean(f, checkSerializable)

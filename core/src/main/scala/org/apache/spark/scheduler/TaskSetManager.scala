@@ -159,6 +159,7 @@ private[spark] class TaskSetManager(
   }
 
   // Figure out which locality levels we have in our TaskSet, so we can do delay scheduling
+  // 当前TaskSetManager允许使用的本地化级别
   var myLocalityLevels = computeValidLocalityLevels()
   var localityWaits = myLocalityLevels.map(getLocalityWait) // Time to wait at each level
 
@@ -419,6 +420,11 @@ private[spark] class TaskSetManager(
    * @param execId the executor Id of the offered resource
    * @param host  the host Id of the offered resource
    * @param maxLocality the maximum locality we want to schedule the tasks at
+   * 用于给Worker分配Task，处理步骤如下：
+    * 1）获取当前任务集允许使用的本地化级别
+    * 2）调用findTask寻找Executor、host、pendingTasksWithNoPrefs中有待运行的task
+    * 3）创建TaskInfo，并对task、addedFiles、addedJars进行序列化
+    * 4）调用DagScheduler的taskStarted方法，向DAGSchedulerEventProcessActor发送BeginEvent事件
    */
   @throws[TaskNotSerializableException]
   def resourceOffer(
@@ -505,6 +511,12 @@ private[spark] class TaskSetManager(
 
   /**
    * Get the level we can launch tasks according to delay scheduling, based on current wait time.
+   * 获取任务集允许使用的本地化级别
+    * 处理步骤如下：
+    * 1）根据当前本地化级别索引（currentLocalityIndex刚开始为0），获取此本地化级别的等待时长
+    * 2）如果当前时间与上次运行本地化时间（lastLaunchTime）之差大于等于上一步获得的时长且当前本地化级别索引小于myLocalityLevels的索引范围，
+    *    那么将第1）步的时长增加到lastLaunchTime中，然后使currentLocalityIndex增加1，最后重新从第1）步开始执行。
+    *    这个过程也称为本地化级别跳级
    */
   private def getAllowedLocalityLevel(curTime: Long): TaskLocality.TaskLocality = {
     // Remove the scheduled or finished tasks lazily
@@ -860,11 +872,14 @@ private[spark] class TaskSetManager(
   /**
    * Compute the locality levels used in this TaskSet. Assumes that all tasks have already been
    * added to queues using addPendingTask.
-   *
+   * 计算有效的本地化级别
    */
   private def computeValidLocalityLevels(): Array[TaskLocality.TaskLocality] = {
     import TaskLocality.{PROCESS_LOCAL, NODE_LOCAL, NO_PREF, RACK_LOCAL, ANY}
     val levels = new ArrayBuffer[TaskLocality.TaskLocality]
+    // 如果存在Executor中有待执行的任务 且PROCESS_LOCAL本地化的等待时间不为0
+    //   且存在Executor已被激活（pendingTasksForExecutor中的ExecutorId有存在于TaskScheduler的activeExecutorIds中）
+    // 那么允许的本地化级别里包括PROCESS_LOCAL
     if (!pendingTasksForExecutor.isEmpty && getLocalityWait(PROCESS_LOCAL) != 0 &&
         pendingTasksForExecutor.keySet.exists(sched.isExecutorAlive(_))) {
       levels += PROCESS_LOCAL

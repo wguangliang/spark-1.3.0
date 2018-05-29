@@ -71,6 +71,10 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
   // Executors we have requested the cluster manager to kill that have not died yet
   private val executorsPendingToRemove = new HashSet[String]
 
+  /**
+    * CoarseGrainedSchedulerBackend 里面 有个DriverActor类
+    * @param sparkProperties
+    */
   class DriverActor(sparkProperties: Seq[(String, String)]) extends Actor with ActorLogReceive {
     override protected def log = CoarseGrainedSchedulerBackend.this.log
     private val addressToExecutorId = new HashMap[Address, String]
@@ -86,16 +90,16 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
     }
 
     def receiveWithLogging = {
-      //当driver接收到Executor发送过来的要求注册Executor信息的消息
+      // 当driver接收到Executor发送过来的要求注册Executor信息的消息
       case RegisterExecutor(executorId, hostPort, cores, logUrls) =>
         Utils.checkHostPort(hostPort, "Host port expected " + hostPort)
-        if (executorDataMap.contains(executorId)) { //查看这个executor是否注册过，如果包括
+        if (executorDataMap.contains(executorId)) { // 查看这个executor是否注册过，如果包括
           sender ! RegisterExecutorFailed("Duplicate executor ID: " + executorId)
-        } else { //如果没有注册过
+        } else { // 如果没有注册过
           logInfo("Registered executor: " + sender + " with ID " + executorId)
-          sender ! RegisteredExecutor   //driver actor向Executor发送消息，告诉完成注册
+          sender ! RegisteredExecutor   // driver actor向Executor发送消息，告诉完成注册
 
-          addressToExecutorId(sender.path.address) = executorId  //将地址与executorId关联
+          addressToExecutorId(sender.path.address) = executorId  // 将地址与executorId关联
           totalCoreCount.addAndGet(cores)
           totalRegisteredExecutors.addAndGet(1)
           val (host, _) = Utils.parseHostPort(hostPort)
@@ -111,9 +115,9 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
           }
           listenerBus.post(
             SparkListenerExecutorAdded(System.currentTimeMillis(), executorId, data))
-          makeOffers() //查看是否有任务需要提交（driver提交给executor）
+          makeOffers() // 查看是否有任务需要提交（driver提交给executor）
         }
-
+      // 当Executor执行任务时，会发送StatusUpdate信息给driver。driver接收后
       case StatusUpdate(executorId, taskId, state, data) =>
         scheduler.statusUpdate(taskId, state, data.value)
         if (TaskState.isFinished(state)) {
@@ -129,7 +133,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
         }
 
       case ReviveOffers =>
-        makeOffers() //调用makeOffers向Executor提交Task
+        makeOffers() // 调用makeOffers向Executor提交Task
 
       case KillTask(taskId, executorId, interruptThread) =>
         executorDataMap.get(executorId) match {
@@ -144,9 +148,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
         sender ! true
         context.stop(self)
 
+      // stopExecutors方法，像向DriverActor发送StopExecutors消息，DriverActor收到StopExecutors消息后的处理逻辑如下
       case StopExecutors =>
         logInfo("Asking each executor to shut down")
         for ((_, executorData) <- executorDataMap) {
+          // 向每个CoarseGrainedExecutorBackend进程发送StopExecutor消息
           executorData.executorActor ! StopExecutor
         }
         sender ! true
@@ -155,6 +161,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
         removeExecutor(executorId, reason)
         sender ! true
 
+      // 不辞而别。Akka的通信机制保证当互相通信的任意一方异常退出，另一方都会收到DisassociatedEvent
       case DisassociatedEvent(_, address, _) =>
         addressToExecutorId.get(address).foreach(removeExecutor(_,
           "remote Akka client disassociated"))
@@ -165,7 +172,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
 
     // Make fake resource offers on all executors
     def makeOffers() {
-      //调用lauchTasks向Executor提交Task
+      // 调用lauchTasks向Executor提交Task
       launchTasks(scheduler.resourceOffers(executorDataMap.map { case (id, executorData) =>
         new WorkerOffer(id, executorData.executorHost, executorData.freeCores)
       }.toSeq))
@@ -180,11 +187,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
 
     // Launch tasks returned by a set of resource offers
     def launchTasks(tasks: Seq[Seq[TaskDescription]]) {
-      //遍历tasks
+      // 遍历tasks
       for (task <- tasks.flatten) {
-        //拿到序列化器
+        // 拿到序列化器
         val ser = SparkEnv.get.closureSerializer.newInstance()
-        //TODO 序列化Task，因为需要网络传输
+        // TODO 序列化Task，因为需要网络传输
         val serializedTask = ser.serialize(task)
         if (serializedTask.limit >= akkaFrameSize - AkkaUtils.reservedSizeBytes) {
           val taskSetId = scheduler.taskIdToTaskSetId(task.taskId)
@@ -202,9 +209,9 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
           }
         }
         else {
-          val executorData = executorDataMap(task.executorId) //根据executorId得到该task将要分配的executor信息
-          executorData.freeCores -= scheduler.CPUS_PER_TASK  //executor空闲的核数减去每个task的消耗的核数
-          //TODO 向该executor的Actor发送序列化好的Task 。LaunchTask是一个case class
+          val executorData = executorDataMap(task.executorId) // 根据executorId得到该task将要分配的executor信息
+          executorData.freeCores -= scheduler.CPUS_PER_TASK  // executor空闲的核数减去每个task的消耗的核数
+          // TODO 向该executor的Actor发送序列化好的Task 。LaunchTask是一个case class
           executorData.executorActor ! LaunchTask(new SerializableBuffer(serializedTask))
         }
       }
@@ -250,6 +257,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
     try {
       if (driverActor != null) {
         logInfo("Shutting down all executors")
+        // 向DriverActor发送StopExecutors消息，DriverActor收到StopExecutors
         val future = driverActor.ask(StopExecutors)(timeout)
         Await.ready(future, timeout)
       }
@@ -260,9 +268,11 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
   }
 
   override def stop() {
+    // 停止Executor
     stopExecutors()
     try {
       if (driverActor != null) {
+        // 停止driver
         val future = driverActor.ask(StopDriver)(timeout)
         Await.ready(future, timeout)
       }
@@ -273,7 +283,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, val actorSyste
   }
 
   override def reviveOffers() {
-    driverActor ! ReviveOffers //向driverActor发送消息，请求任务
+    driverActor ! ReviveOffers // 向driverActor发送消息，请求任务
   }
 
   override def killTask(taskId: Long, executorId: String, interruptThread: Boolean) {

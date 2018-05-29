@@ -208,7 +208,22 @@ class HadoopRDD[K, V](
     array
   }
 
+  /**
+    * 构造NextIterator的过程如下：
+    * 1）从broadcast中获取jobConf
+    * 2）创建InputMetrics用于计算字节读取的测量信息，然后在RecordReader正式读取数据之前创建bytesReadCallback。
+    *      bytesReadCallback用于获取当前线程从文件系统读取的字节数
+    * 3）获取inputFormat
+    * 4）使用addLocalConfiguration给JobConf添加Hadoop任务相关配置
+    * 5）创建RecordReader，调用reader.createKey()和reader.createValue()
+    *     NextIterator的getNext实际是代理了RecordReader的next方法并且每读取一些记录后使用bytesReadCallback更新InputMetrics的bytesRead字段。
+    * 6）将NextIterator封装为InterruptibleIterator
+    * @param theSplit
+    * @param context
+    * @return
+    */
   override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(K, V)] = {
+    // 创建NextIterator的匿名内部类，然后将其封装为InterruptibleIterator
     val iter = new NextIterator[(K, V)] {
 
       val split = theSplit.asInstanceOf[HadoopPartition]

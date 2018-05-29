@@ -35,8 +35,15 @@ import org.apache.spark.{Logging, SparkException, SparkConf}
  * this set changes. This is all done by synchronizing access on "this" to mutate state and using
  * wait() and notifyAll() to signal changes.
  * 负责管理shuffle线程占用内存的分配和释放，并通过threadMemory:mutable.HashMap[Long, Long]缓存每个线程的内存字节数
+ * 在一个executor中可以并行执行多个task，这些task都可能发生shuffle，
+ * 每个task看作一个线程，这些线程公用一个内存池，这时就涉及到内存的使用策略了，
+ * 申请过多会导致其他task spill内存不足，过少又会影响自身效率，spark中对这块的内存管理位于ShuffleMemoryManager类中，
+ * 基本的分配策略是如果线程数为n，那么spark可以确保一个线程的内存在1/n和1/2n之间，
+ * 由于线程数是动态的，因此计算也是动态的，当一个task使用完后，executor负责release此内存。内存的申请和释放在spill时产生。
  */
 private[spark] class ShuffleMemoryManager(maxMemory: Long) extends Logging {
+
+  // maxMemory = (Runtime.getRuntime.maxMemory * memoryFraction * safetyFraction).toLong
   // 缓存每个线程的内存字节数
   private val threadMemory = new mutable.HashMap[Long, Long]()  // threadId -> memory bytes
 
@@ -49,8 +56,13 @@ private[spark] class ShuffleMemoryManager(maxMemory: Long) extends Logging {
    * total memory pool (where N is the # of active threads) before it is forced to spill. This can
    * happen if the number of threads increases but an older thread had a lot of memory already.
    */
+  // 尝试获得内存方法
+  // 此方法用于当前线程尝试获得numBytes大小的内存，并返回实际获得的内存大小。
+  //   处理逻辑：
+  //      假设当前有N个线程，必须保证每个线程在溢出之前至少获得 1/(2N) 的内存，并且每个线程最多获得 1/N 的内存。
+  //      由于N是动态变化的变量，所以要持续对这些线程进行跟踪，以便无论何时在这些线程变化时重新按照1/(2N) 和 1/N 计算
   def tryToAcquire(numBytes: Long): Long = synchronized {
-    val threadId = Thread.currentThread().getId
+    val threadId = Thread.currentThread().getId // 当前线程id
     assert(numBytes > 0, "invalid number of bytes requested: " + numBytes)
 
     // Add this thread to the threadMemory map just so we can keep an accurate count of the number
@@ -82,7 +94,7 @@ private[spark] class ShuffleMemoryManager(maxMemory: Long) extends Logging {
           return toGrant
         } else {
           logInfo(s"Thread $threadId waiting for at least 1/2N of shuffle memory pool to be free")
-          wait()
+          wait() // 等待其他线程释放内存
         }
       } else {
         // Only give it as much memory as is free, which might be none if it reached 1 / numThreads
@@ -107,6 +119,7 @@ private[spark] class ShuffleMemoryManager(maxMemory: Long) extends Logging {
   }
 
   /** Release all memory for the current thread and mark it as inactive (e.g. when a task ends). */
+  // 释放资源
   def releaseMemoryForThisThread(): Unit = synchronized {
     val threadId = Thread.currentThread().getId
     threadMemory.remove(threadId)

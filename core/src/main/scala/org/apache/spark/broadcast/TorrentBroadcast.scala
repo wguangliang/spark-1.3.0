@@ -74,13 +74,14 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
     } else {
       None
     }
-    blockSize = conf.getInt("spark.broadcast.blockSize", 4096) * 1024
+    blockSize = conf.getInt("spark.broadcast.blockSize", 4096) * 1024  // 默认配置属性确认块大小为4MB
   }
   setConf(SparkEnv.get.conf)
 
   private val broadcastId = BroadcastBlockId(id)
 
   /** Total number of blocks this broadcast variable contains. */
+  // 块的写入操作
   private val numBlocks: Int = writeBlocks(obj)
 
   override protected def getValue() = {
@@ -91,6 +92,9 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
    * Divide the object into multiple blocks and put those blocks in the block manager.
    * @param value the object to divide
    * @return number of blocks this broadcast variable is divided into
+   *  1）将要写入的对象在本地的存储体系中备份一份，以便于task也可以在本地的Driver上运行
+   *  2）给ByteArrayChunkOutputStream指定压缩算法，并且将对象以序列化方式写入ByteArrayChunkOutputStream后转换为Array[ByteBuffer]
+   *  3）将每一个ByteBuffer作为一个Block，使用putBytes方法写入存储体系
    */
   private def writeBlocks(value: T): Int = {
     // Store a copy of the broadcast variable in the driver so that tasks run on the driver

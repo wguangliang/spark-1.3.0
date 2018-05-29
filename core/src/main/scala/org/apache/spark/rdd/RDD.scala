@@ -240,8 +240,10 @@ abstract class RDD[T: ClassTag](
    */
   final def iterator(split: Partition, context: TaskContext): Iterator[T] = {
     if (storageLevel != StorageLevel.NONE) {
+      // 如果有缓存到存储体系，
       SparkEnv.get.cacheManager.getOrCompute(this, split, context, storageLevel)
     } else {
+      // 否则需要计算
       computeOrReadCheckpoint(split, context)
     }
   }
@@ -275,6 +277,7 @@ abstract class RDD[T: ClassTag](
    */
   private[spark] def computeOrReadCheckpoint(split: Partition, context: TaskContext): Iterator[T] =
   {
+    // 如果存在检查点时，直接获取中间结果。否则需要调用compute继续计算
     if (isCheckpointed) firstParent[T].iterator(split, context) else compute(split, context)
   }
 
@@ -294,8 +297,8 @@ abstract class RDD[T: ClassTag](
    */
   def flatMap[U: ClassTag](f: T => TraversableOnce[U]): RDD[U] = {
     val cleanF = sc.clean(f)
-    //transform方法每次都会把this当做第一个参数传入，this即谁调用该方法即为谁。
-    //this保证了记录到了父RDD，保证RDD之间的依赖关系
+    // transform方法每次都会把this当做第一个参数传入，this即谁调用该方法即为谁。
+    // this保证了记录到了父RDD，保证RDD之间的依赖关系
     new MapPartitionsRDD[U, T](this, (context, pid, iter) => iter.flatMap(cleanF))
   }
 

@@ -44,6 +44,10 @@ trait CompressionCodec {
   def compressedInputStream(s: InputStream): InputStream
 }
 
+/**
+  * 对Block进行压缩。
+  * 根据配置spark.io.compression.codec来确定压缩算法（默认snappy）
+  */
 private[spark] object CompressionCodec {
 
   private val configKey = "spark.io.compression.codec"

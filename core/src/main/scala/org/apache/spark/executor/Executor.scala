@@ -119,6 +119,16 @@ private[spark] class Executor(
   // Executor向driver发送心跳报活：创建一个线程来向driver发送心跳
   startDriverHeartbeater()
   // 使用线程池执行任务
+  /**
+    * 调用Executor的launchTask方法，标志着任务执行阶段的开始。执行过程如下：
+        1）创建TaskRunner，并将其与taskId、taskName及serializedTask添加到 runningTasks = new ConcurrentHashMap[Long, TaskRunner]中
+        2）TaskRunner执行了Running接口，最后使用线程池执行TaskRunner
+    * @param context
+    * @param taskId
+    * @param attemptNumber
+    * @param taskName
+    * @param serializedTask
+    */
   def launchTask(
       context: ExecutorBackend,
       taskId: Long,
@@ -152,6 +162,15 @@ private[spark] class Executor(
 
   private def gcTime = ManagementFactory.getGarbageCollectorMXBeans.map(_.getCollectionTime).sum
 
+  /**
+    * 执行任务的线程
+    * 真正执行任务的方法是run()
+    * @param execBackend
+    * @param taskId
+    * @param attemptNumber
+    * @param taskName
+    * @param serializedTask
+    */
   class TaskRunner(
       execBackend: ExecutorBackend,
       val taskId: Long,
@@ -293,13 +312,17 @@ private[spark] class Executor(
             SparkUncaughtExceptionHandler.uncaughtException(t)
           }
         }
-      } finally {
+      } finally { // 执行完成后，进行清理工作
         // Release memory used by this thread for shuffles
+        //  释放当前线程通过ShuffleMemoryManager获得的内存
         env.shuffleMemoryManager.releaseMemoryForThisThread()
         // Release memory used by this thread for unrolling blocks
+        // 释放当前线程在MemoryStore的unrollMemoryMap中展开占用的内存
         env.blockManager.memoryStore.releaseUnrollMemoryForThisThread()
         // Release memory used by this thread for accumulators
+        // 释放当前线程用于聚合计算占用的内存
         Accumulators.clear()
+        // 将当前task从runningTasks中移除
         runningTasks.remove(taskId)
       }
     }

@@ -25,11 +25,12 @@ private[spark] class MapPartitionsRDD[U: ClassTag, T: ClassTag](
     prev: RDD[T],
     f: (TaskContext, Int, Iterator[T]) => Iterator[U],  // (TaskContext, partition index, iterator)
     preservesPartitioning: Boolean = false)
-  extends RDD[U](prev) {
+  extends RDD[U](prev) { // 这里调用父类RDD的辅助构造器，封装为OneToOneDependency。
+  // OneToOneDependency继承自NarrowDependence
 
   override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
 
-  override def getPartitions: Array[Partition] = firstParent[T].partitions
+  override def getPartitions: Array[Partition] = firstParent[T].partitions  // 实际上调用的是父RDD的partitions方法
 
   override def compute(split: Partition, context: TaskContext) =
     f(context, split.index, firstParent[T].iterator(split, context))
